@@ -13,9 +13,15 @@ from logging.handlers import RotatingFileHandler
 import config
 
 
-def configure_logging(level=logging.INFO):
-    """Set up root logging handlers. Call once, at process start."""
-    os.makedirs(config.LOG_DIR, exist_ok=True)
+def configure_logging(level=logging.INFO, log_file=None):
+    """Set up root logging handlers. Call once, at process start.
+
+    `log_file` defaults to config.LOG_FILE (the live bot's log); pass a
+    different path (e.g. from backtest.py) to keep one-off/offline runs out
+    of the live log that's being actively monitored.
+    """
+    log_file = log_file or config.LOG_FILE
+    os.makedirs(os.path.dirname(log_file) or ".", exist_ok=True)
 
     formatter = logging.Formatter(
         fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
@@ -26,7 +32,7 @@ def configure_logging(level=logging.INFO):
     console_handler.setFormatter(formatter)
 
     file_handler = RotatingFileHandler(
-        config.LOG_FILE, maxBytes=5_000_000, backupCount=5
+        log_file, maxBytes=5_000_000, backupCount=5
     )
     file_handler.setFormatter(formatter)
 

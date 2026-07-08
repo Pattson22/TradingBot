@@ -100,12 +100,45 @@ python main.py
 
 Stop with `Ctrl+C` for a clean shutdown/disconnect.
 
+## Backtesting
+
+Before trusting the strategy's parameters (RSI thresholds, ATR multipliers,
+etc.), `backtest.py` replays the exact same entry/exit rules against real
+historical MT5 bars and reports performance stats — no live orders, no
+demo-account side effects:
+
+```
+python backtest.py --symbol EURUSD --start 2025-01-01 --end 2026-07-01
+```
+
+Requires the same running/logged-in MT5 terminal as live trading (historical
+bars and symbol tick economics are both sourced from it). Bars are cached to
+`backtest_data/` so repeat runs over the same window don't re-fetch. Output
+and logs go to `logs/backtest.log`, kept separate from the live bot's log.
+See `backtest_engine.py`'s module docstring for the OHLC-bar approximations
+this implies (no tick-level intrabar precision, no slippage modeling) —
+read it before trusting the exact numbers.
+
+## Testing
+
+```
+pip install -r requirements-dev.txt
+pytest
+```
+
+Covers the stateless modules (`risk_management.py`, `indicators.py`,
+`backtest_engine.py`) and the SQLite persistence layer
+(`trade_state_store.py`) directly; live-only modules that require a real MT5
+connection (`broker.py`, `order_execution.py`, `trade_manager.py`,
+`circuit_breaker.py`) are exercised via the dry-run/live loop instead, not
+unit tests.
+
 ## Known limitations / follow-ups
 
 - The circuit breaker's "day" boundary uses UTC calendar dates on the
   machine running the bot, not the broker's own server-side trading-day
   rollover — adjust `circuit_breaker.py` if your broker's day boundary
   matters for your use case.
-- This code has not been run against a live MT5 terminal in this environment
-  — validate end-to-end on your own demo account before considering it
-  production-ready.
+- `backtest_engine.py` only has bar-level (not tick-level) granularity for
+  exit-tier management, so its numbers are a reasonable approximation, not a
+  perfect replay of what live polling would have done — see its docstring.
