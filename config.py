@@ -36,7 +36,13 @@ DRY_RUN = os.environ.get("DRY_RUN", "true").lower() in ("1", "true", "yes")
 # ---------------------------------------------------------------------------
 # Symbol names must match exactly what your broker exposes in MT5
 # (some brokers suffix pairs, e.g. "EURUSD.a" or "EURUSDm"). Adjust as needed.
-SYMBOLS = ["EURUSD", "USDJPY"]
+# USDJPY dropped 2026-07-08: backtest.py/optimize.py both showed this
+# strategy structurally losing money on USDJPY over 18 months of history
+# (fixed-default, walk-forward-tuned, and with/without MTF confirmation all
+# came back negative — see memory/backtesting_harness.md and
+# memory/mtf_confirmation.md), unlike EURUSD which was consistently
+# profitable across the same variations.
+SYMBOLS = ["EURUSD"]
 
 # Working timeframe for signal generation. Uses MetaTrader5 timeframe
 # constants (mt5.TIMEFRAME_H1 etc.) — imported where needed to avoid a
@@ -48,6 +54,13 @@ BARS_TO_FETCH = 300     # enough history for EMA200 + indicator warm-up
 # STRATEGY PARAMETERS (mean reversion, trend-filtered)
 # ---------------------------------------------------------------------------
 RSI_PERIOD = 14
+# 30/70 (textbook default). 35/65 was tried 2026-07-08 after a walk-forward
+# run suggested it — but applied as a fixed default (rather than the
+# optimizer's adaptive per-fold choice) it roughly quadrupled trade
+# frequency and materially worsened max drawdown on both symbols tested
+# (EURUSD -2.18%->-4.13%, USDJPY -8.10%->-13.79%), so reverted. See
+# memory/mtf_confirmation.md for the comparison. Re-run optimize.py before
+# considering a change here again.
 RSI_OVERSOLD = 30
 RSI_OVERBOUGHT = 70
 
