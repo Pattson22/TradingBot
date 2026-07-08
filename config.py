@@ -109,6 +109,22 @@ MAX_SPREAD_POINTS = {
 DEFAULT_MAX_SPREAD_POINTS = 30  # fallback for symbols not listed above
 
 # ---------------------------------------------------------------------------
+# ECONOMIC CALENDAR / NEWS FILTER (news_filter.py)
+# ---------------------------------------------------------------------------
+# Opt-in: only active if NEWS_CALENDAR_URL is set. Left unconfigured by
+# default rather than failing safe/blocking-all, since silently blocking
+# every trade because a URL wasn't set would be a surprising default for a
+# feature nobody asked to enable yet.
+NEWS_CALENDAR_URL = os.environ.get("NEWS_CALENDAR_URL") or None
+NEWS_CALENDAR_API_KEY = os.environ.get("NEWS_CALENDAR_API_KEY") or None
+
+NEWS_RESTRICT_BEFORE_MINUTES = 30
+NEWS_RESTRICT_AFTER_MINUTES = 30
+NEWS_MAX_ALLOWED_SPREAD_PIPS = 2.5
+NEWS_PRE_EVENT_PROTECTION_MINUTES = 5
+NEWS_PROTECTION_ACTION = "close"  # "close" or "breakeven"
+
+# ---------------------------------------------------------------------------
 # EXECUTION / MISC
 # ---------------------------------------------------------------------------
 MAGIC_NUMBER = 20260708          # unique id tagging this bot's orders/positions

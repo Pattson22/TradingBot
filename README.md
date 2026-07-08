@@ -1,8 +1,12 @@
 # Conservative Forex Trading Bot
 
-A rule-based, low-risk-per-trade Forex bot for EUR/USD and USD/JPY, built on
-MetaTrader 5. Philosophy: capital preservation first, compounding via small,
-consistent gains — no Martingale, no grid trading, no averaging down.
+A rule-based, low-risk-per-trade Forex bot for EUR/USD, built on MetaTrader 5.
+Philosophy: capital preservation first, compounding via small, consistent
+gains — no Martingale, no grid trading, no averaging down. (USD/JPY was
+originally in scope too but was dropped after `backtest.py`/`optimize.py`
+both showed it structurally losing money with this strategy across 18
+months of history — see git history around the "Drop USDJPY" commit if
+you're picking this project back up and want the full story.)
 
 ## How it works
 
@@ -25,6 +29,18 @@ consistent gains — no Martingale, no grid trading, no averaging down.
   force-closes everything and halts new entries until the next calendar day.
 - **Spread filter** (`spread_filter.py`): blocks new entries when the spread
   is wider than the configured baseline (e.g. around news events).
+- **News filter** (`news_filter.py`, `economic_calendar.py`): opt-in — only
+  active if `NEWS_CALENDAR_URL` is set (see Configuration below). Blocks new
+  entries within a configurable window around High-impact macro events for
+  either currency in the pair (time lock) and when the live spread is too
+  wide even outside that window (spread lock), since news can leave the book
+  gapped for a few extra minutes after the time lock itself clears. Also
+  de-risks *existing* positions as a High-impact event approaches — moving
+  the stop to break-even or flattening the position, per
+  `config.NEWS_PROTECTION_ACTION`. Fails safe: if the calendar source errors,
+  it blocks all new entries and recommends closing every open position
+  rather than trading blind. Run `python news_filter.py` for a self-contained
+  timeline demo (no MT5 connection needed — uses a mock calendar).
 
 ## Requirements
 
@@ -79,6 +95,12 @@ export MT5_PATH="C:\Program Files\MetaTrader 5\terminal64.exe"  # optional
 Every strategy/risk/execution parameter (risk %, ATR multipliers, RSI
 thresholds, spread caps, symbols, timeframe, poll interval) lives in
 `config.py` — read through it before running.
+
+**Optional — news filter:** set `NEWS_CALENDAR_URL` (and `NEWS_CALENDAR_API_KEY`
+if your provider needs one) to enable `news_filter.py`'s macro-news guardrail.
+Point it at any calendar API/proxy that returns JSON matching
+`economic_calendar.HttpJsonCalendarProvider`'s documented schema — left unset
+by default, the bot runs exactly as before with the filter disabled.
 
 ### DRY_RUN (start here)
 
@@ -146,11 +168,12 @@ pytest
 ```
 
 Covers the stateless modules (`risk_management.py`, `indicators.py`,
-`backtest_engine.py`, `backtest_optimize.py`, `mtf_trend.py`, `signals.py`)
-and the SQLite persistence layer (`trade_state_store.py`) directly;
-live-only modules that require a real MT5 connection (`broker.py`,
-`order_execution.py`, `trade_manager.py`, `circuit_breaker.py`) are
-exercised via the dry-run/live loop instead, not unit tests.
+`backtest_engine.py`, `backtest_optimize.py`, `mtf_trend.py`, `signals.py`,
+`economic_calendar.py`, `news_filter.py`) and the SQLite persistence layer
+(`trade_state_store.py`) directly; live-only modules that require a real MT5
+connection (`broker.py`, `order_execution.py`, `trade_manager.py`,
+`circuit_breaker.py`) are exercised via the dry-run/live loop instead, not
+unit tests.
 
 ## Known limitations / follow-ups
 
