@@ -15,13 +15,15 @@ original stop distance in price terms):
      run further while still protecting what's been gained.
 
 State (has BE been applied? has the partial fired? the running high/low
-water mark for trailing) is kept in an in-memory dict keyed by MT5 ticket.
+water mark for trailing) is kept in an in-memory dict keyed by MT5 ticket,
+backed by `trade_state_store` (sqlite) so it survives a bot restart.
 `register_new_trade` seeds this accurately at entry time — that is the
 authoritative source, since after SL is moved to break-even the *original*
-stop distance can no longer be read back off the position. If the bot
-restarts, in-flight positions lose their precise R basis; `manage_open_
-positions` falls back to re-deriving a best-effort state from the position's
-current SL rather than crashing, and logs a warning so this is visible.
+stop distance can no longer be read back off the position. On startup,
+state is reloaded from the database; only positions this process never saw
+committed to disk (e.g. a DB file that predates this feature, or one opened
+by another process) fall back to `_get_or_derive_state`'s best-effort
+re-derivation from the position's current SL.
 """
 
 import math
@@ -31,6 +33,7 @@ import MetaTrader5 as mt5
 import broker
 import config
 import order_execution
+import trade_state_store
 from logger_setup import get_logger
 
 log = get_logger(__name__)
@@ -38,18 +41,20 @@ log = get_logger(__name__)
 _PRICE_EPSILON = 1e-9
 
 # ticket -> {"initial_stop_distance", "be_applied", "partial_done", "extreme_price"}
-_state = {}
+_state = trade_state_store.load_all()
 
 
 def register_new_trade(ticket, entry_price, initial_stop_distance):
     """Call immediately after a successful entry order to seed accurate
     R-multiple tracking for this position."""
-    _state[ticket] = {
+    state = {
         "initial_stop_distance": initial_stop_distance,
         "be_applied": False,
         "partial_done": False,
         "extreme_price": entry_price,
     }
+    _state[ticket] = state
+    trade_state_store.save(ticket, state)
 
 
 def prune_closed_positions(open_tickets):
@@ -58,6 +63,7 @@ def prune_closed_positions(open_tickets):
     stale = [t for t in _state if t not in open_tickets]
     for t in stale:
         del _state[t]
+    trade_state_store.delete_many(stale)
 
 
 def _get_or_derive_state(position):
@@ -90,6 +96,7 @@ def _get_or_derive_state(position):
         "extreme_price": position.price_open,
     }
     _state[ticket] = state
+    trade_state_store.save(ticket, state)
     log.warning(
         "Re-derived exit state for pre-existing ticket %s after restart "
         "(be_applied=%s); partial-TP progress could not be recovered.",
@@ -172,3 +179,5 @@ def manage_open_positions(symbol, current_atr):
             if should_update:
                 order_execution.modify_stop_loss(position, trail_sl)
                 log.info("Ticket %s trailing stop tightened to %.5f", position.ticket, trail_sl)
+
+        trade_state_store.save(position.ticket, state)

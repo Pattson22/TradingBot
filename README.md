@@ -16,7 +16,9 @@ consistent gains — no Martingale, no grid trading, no averaging down.
   sent in one atomic request so a position is never briefly unprotected.
 - **Exit management** (`trade_manager.py`): stop moves to break-even at +1R,
   50% of the position is taken off at +2R, and the remainder trails on an
-  ATR-based stop.
+  ATR-based stop. Progress through these tiers is persisted to a small
+  SQLite database (`trade_state_store.py`, `data/trade_state.db`) so it
+  survives a bot restart.
 - **Circuit breaker** (`circuit_breaker.py`): a 2% intraday equity drawdown
   force-closes everything and halts new entries until the next calendar day.
 - **Spread filter** (`spread_filter.py`): blocks new entries when the spread
@@ -100,11 +102,6 @@ Stop with `Ctrl+C` for a clean shutdown/disconnect.
 
 ## Known limitations / follow-ups
 
-- Exit-tier state (`trade_manager.py`) is kept in memory. If the bot process
-  restarts while a position is open, it re-derives a best-effort state from
-  the position's current stop-loss but cannot recover whether the +2R
-  partial had already fired. For continuous unattended operation, consider
-  persisting this state (e.g. to SQLite) instead.
 - The circuit breaker's "day" boundary uses UTC calendar dates on the
   machine running the bot, not the broker's own server-side trading-day
   rollover — adjust `circuit_breaker.py` if your broker's day boundary

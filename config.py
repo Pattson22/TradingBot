@@ -97,3 +97,11 @@ POLL_INTERVAL_SECONDS = 30       # main loop cadence
 
 LOG_DIR = "logs"
 LOG_FILE = os.path.join(LOG_DIR, "tradingbot.log")
+
+# ---------------------------------------------------------------------------
+# STATE PERSISTENCE
+# ---------------------------------------------------------------------------
+# Exit-tier state (break-even/partial-TP/trailing progress per open ticket)
+# is persisted here so it survives a bot restart. See trade_state_store.py.
+DATA_DIR = "data"
+STATE_DB_PATH = os.path.join(DATA_DIR, "trade_state.db")
