@@ -56,6 +56,13 @@ BOLLINGER_STD_DEV = 2.0
 
 TREND_FILTER_EMA_PERIOD = 200
 
+# Multi-timeframe trend confirmation: entries additionally require this
+# higher timeframe's own EMA trend to agree with the H1 EMA200 trend above,
+# not just replace it. See mtf_trend.py.
+MTF_TIMEFRAME_NAME = "H4"
+MTF_EMA_PERIOD = 200
+MTF_BARS_TO_FETCH = 300
+
 ATR_PERIOD = 14
 ATR_SL_MULTIPLIER = 1.5     # stop-loss distance = ATR * this
 ATR_TP_MULTIPLIER = 4.5     # initial safety-net TP distance = ATR * this (~3R)

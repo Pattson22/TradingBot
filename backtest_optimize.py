@@ -28,6 +28,7 @@ import itertools
 import types
 
 import config as default_config
+import mtf_trend
 from backtest_engine import run_backtest_on_enriched
 from backtest_metrics import summarize
 from indicators import compute_all
@@ -83,6 +84,7 @@ def _score(result, objective):
 
 def walk_forward(
     df,
+    mtf_df,
     symbol_info,
     in_sample_bars,
     out_sample_bars,
@@ -93,7 +95,8 @@ def walk_forward(
     base_cfg=default_config,
 ):
     """
-    Run walk-forward optimization over `df`. Returns
+    Run walk-forward optimization over `df` (H1 bars) confirmed against
+    `mtf_df` (higher-timeframe bars, cfg.MTF_TIMEFRAME_NAME). Returns
     (folds, out_of_sample_trades, final_balance):
       - folds: list of dicts, one per fold, with the chosen params and that
         fold's out-of-sample stats (see backtest_metrics.summarize).
@@ -109,9 +112,14 @@ def walk_forward(
     std_dev_groups = {}
     for cfg in combos:
         std_dev_groups.setdefault(cfg.BOLLINGER_STD_DEV, []).append(cfg)
-    enriched_by_std_dev = {
-        std_dev: compute_all(df, cfg_list[0]) for std_dev, cfg_list in std_dev_groups.items()
-    }
+
+    enriched_by_std_dev = {}
+    for std_dev, cfg_list in std_dev_groups.items():
+        enriched = compute_all(df, cfg_list[0])
+        enriched["mtf_trend"] = mtf_trend.align_series(
+            enriched.index, mtf_df, cfg_list[0].MTF_EMA_PERIOD, cfg_list[0].MTF_TIMEFRAME_NAME
+        )
+        enriched_by_std_dev[std_dev] = enriched
 
     folds = []
     out_of_sample_trades = []

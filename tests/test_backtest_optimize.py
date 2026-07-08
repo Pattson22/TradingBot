@@ -23,6 +23,8 @@ def _fake_config():
         PARTIAL_TP_TRIGGER_R=2.0,
         PARTIAL_TP_FRACTION=0.5,
         ATR_TRAIL_MULTIPLIER=2.0,
+        MTF_TIMEFRAME_NAME="H4",
+        MTF_EMA_PERIOD=3,
     )
 
 
@@ -132,8 +134,13 @@ class TestWalkForwardSmoke:
             "ATR_TP_MULTIPLIER": [4.5],
         }
 
+        mtf_df = pd.DataFrame(
+            {"close": [1.1000] * 60},
+            index=pd.date_range("2025-12-01", periods=60, freq="4h", tz="UTC"),
+        )
+
         folds, oos_trades, final_balance = bo.walk_forward(
-            df, _symbol_info(),
+            df, mtf_df, _symbol_info(),
             in_sample_bars=100, out_sample_bars=50,
             grid=tiny_grid, initial_balance=10_000.0,
             base_cfg=_fake_config(),

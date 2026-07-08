@@ -40,6 +40,13 @@ data — read before trusting the numbers):
    *next* bar's check — avoiding a same-bar "retroactively saved by its own
    trailing update" lookahead.
 6. No slippage, spread, or partial-fill modeling on entries/exits.
+7. Multi-timeframe confirmation (mtf_trend.py) is aligned with an as-of
+   backward join shifted by the higher timeframe's own bar duration, so a
+   not-yet-closed higher-timeframe bar never leaks into an earlier H1 bar's
+   signal check — see mtf_trend.align_series's docstring. Like the H1
+   EMA200 filter, this warmup cost is paid once at the very start of
+   whatever date range is requested (no automatic pre-fetch of extra
+   lookback), so it eats a larger fraction of short backtest windows.
 """
 
 import math
@@ -48,6 +55,7 @@ from collections import namedtuple
 import pandas as pd
 
 import config as default_config
+import mtf_trend
 import risk_management
 from indicators import compute_all
 from logger_setup import get_logger
@@ -108,8 +116,8 @@ def _r_multiple_at(direction, entry_price, price, initial_stop_distance):
 
 def _check_entry(row, cfg):
     close = row.close
-    bullish_trend = close > row.ema_trend
-    bearish_trend = close < row.ema_trend
+    bullish_trend = close > row.ema_trend and row.mtf_trend == "bullish"
+    bearish_trend = close < row.ema_trend and row.mtf_trend == "bearish"
 
     if bullish_trend and close <= row.bb_lower and row.rsi < cfg.RSI_OVERSOLD:
         return "buy"
@@ -236,31 +244,37 @@ def _unrealized_pnl(position, row):
 def _warmup_incomplete(row):
     return (
         pd.isna(row.rsi) or pd.isna(row.ema_trend) or pd.isna(row.bb_upper)
-        or pd.isna(row.bb_lower) or pd.isna(row.atr)
+        or pd.isna(row.bb_lower) or pd.isna(row.atr) or pd.isna(row.mtf_trend)
     )
 
 
-def run_backtest(df, symbol_info, initial_balance=10_000.0, cfg=default_config):
+def run_backtest(df, mtf_df, symbol_info, initial_balance=10_000.0, cfg=default_config):
     """
-    Simulate the live strategy over historical bars `df` (as returned by
-    backtest_data.fetch_historical_bars). Only one open position at a time,
-    matching main.py's "flat before entry" rule.
+    Simulate the live strategy over historical H1 bars `df` and higher-
+    timeframe bars `mtf_df` (both as returned by
+    backtest_data.fetch_historical_bars, `mtf_df` using
+    cfg.MTF_TIMEFRAME_NAME). Only one open position at a time, matching
+    main.py's "flat before entry" rule.
 
     Returns a BacktestResult(trades, equity_curve, final_balance).
     """
     enriched = compute_all(df, cfg)
+    enriched["mtf_trend"] = mtf_trend.align_series(
+        enriched.index, mtf_df, cfg.MTF_EMA_PERIOD, cfg.MTF_TIMEFRAME_NAME
+    )
     return run_backtest_on_enriched(enriched, symbol_info, initial_balance=initial_balance, cfg=cfg)
 
 
 def run_backtest_on_enriched(enriched, symbol_info, initial_balance=10_000.0, cfg=default_config):
     """
     Same as run_backtest, but takes a DataFrame that already has the
-    rsi/ema_trend/bb_upper/bb_lower/atr columns attached (via
-    indicators.compute_all). Used by walk-forward optimization, which needs
-    to slice pre-computed indicators into folds rather than recomputing them
-    fresh on each fold's raw bars — recomputing per-fold would cold-restart
-    every rolling/EWM warm-up (e.g. EMA200) at the start of each fold, which
-    doesn't reflect a bot that's actually been running continuously.
+    rsi/ema_trend/bb_upper/bb_lower/atr/mtf_trend columns attached (via
+    indicators.compute_all + mtf_trend.align_series). Used by walk-forward
+    optimization, which needs to slice pre-computed indicators into folds
+    rather than recomputing them fresh on each fold's raw bars —
+    recomputing per-fold would cold-restart every rolling/EWM warm-up (e.g.
+    EMA200) at the start of each fold, which doesn't reflect a bot that's
+    actually been running continuously.
     """
     balance = initial_balance
     position = None

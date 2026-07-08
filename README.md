@@ -8,7 +8,9 @@ consistent gains — no Martingale, no grid trading, no averaging down.
 
 - **Strategy** (`signals.py`): trend-filtered mean reversion. Trades pullbacks
   to the Bollinger Bands + RSI extremes, but only in the direction of the
-  longer-term EMA(200) trend.
+  longer-term EMA(200) trend, additionally confirmed against a higher
+  timeframe's own trend (`mtf_trend.py`, `config.MTF_TIMEFRAME_NAME` = H4 by
+  default) — both timeframes must agree before an entry fires.
 - **Risk** (`risk_management.py`): every trade risks a fixed 1% of the
   *current* account balance (`config.RISK_PER_TRADE`), with position size
   derived from the current ATR-based stop distance — never a fixed lot size.
@@ -144,11 +146,11 @@ pytest
 ```
 
 Covers the stateless modules (`risk_management.py`, `indicators.py`,
-`backtest_engine.py`, `backtest_optimize.py`) and the SQLite persistence
-layer (`trade_state_store.py`) directly; live-only modules that require a
-real MT5 connection (`broker.py`, `order_execution.py`, `trade_manager.py`,
-`circuit_breaker.py`) are exercised via the dry-run/live loop instead, not
-unit tests.
+`backtest_engine.py`, `backtest_optimize.py`, `mtf_trend.py`, `signals.py`)
+and the SQLite persistence layer (`trade_state_store.py`) directly;
+live-only modules that require a real MT5 connection (`broker.py`,
+`order_execution.py`, `trade_manager.py`, `circuit_breaker.py`) are
+exercised via the dry-run/live loop instead, not unit tests.
 
 ## Known limitations / follow-ups
 

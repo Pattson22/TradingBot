@@ -22,6 +22,8 @@ def _cfg(**overrides):
         PARTIAL_TP_TRIGGER_R=2.0,
         PARTIAL_TP_FRACTION=0.5,
         ATR_TRAIL_MULTIPLIER=2.0,
+        MTF_TIMEFRAME_NAME="H4",
+        MTF_EMA_PERIOD=3,
     )
     base.update(overrides)
     return types.SimpleNamespace(**base)
@@ -59,20 +61,29 @@ class TestPriceHelpers:
 
 class TestCheckEntry:
     def test_buy_signal_when_all_conditions_met(self):
-        row = _row(close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=25)
+        row = _row(close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=25, mtf_trend="bullish")
         assert be._check_entry(row, _cfg()) == "buy"
 
     def test_sell_signal_when_all_conditions_met(self):
-        row = _row(close=1.1060, ema_trend=1.1100, bb_lower=1.0900, bb_upper=1.1050, rsi=75)
+        row = _row(close=1.1060, ema_trend=1.1100, bb_lower=1.0900, bb_upper=1.1050, rsi=75, mtf_trend="bearish")
         assert be._check_entry(row, _cfg()) == "sell"
 
     def test_no_signal_when_trend_disagrees(self):
         # Bearish trend but price at the lower band -> no long (fighting the trend).
-        row = _row(close=1.0940, ema_trend=1.1100, bb_lower=1.0950, bb_upper=1.1200, rsi=25)
+        row = _row(close=1.0940, ema_trend=1.1100, bb_lower=1.0950, bb_upper=1.1200, rsi=25, mtf_trend="bearish")
         assert be._check_entry(row, _cfg()) is None
 
     def test_no_signal_when_rsi_not_extreme(self):
-        row = _row(close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=50)
+        row = _row(close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=50, mtf_trend="bullish")
+        assert be._check_entry(row, _cfg()) is None
+
+    def test_no_signal_when_higher_timeframe_disagrees(self):
+        # H1 trend/BB/RSI all say "buy", but the higher timeframe is bearish.
+        row = _row(close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=25, mtf_trend="bearish")
+        assert be._check_entry(row, _cfg()) is None
+
+    def test_no_signal_when_higher_timeframe_not_warmed_up(self):
+        row = _row(close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=25, mtf_trend=None)
         assert be._check_entry(row, _cfg()) is None
 
 
@@ -181,7 +192,12 @@ class TestRunBacktestSmoke:
             dtype=float,
         )
 
-        result = be.run_backtest(df, _symbol_info(), initial_balance=10_000.0, cfg=self._fake_config())
+        mtf_df = pd.DataFrame(
+            {"close": [1.1000] * 10},
+            index=pd.date_range("2025-12-30", periods=10, freq="4h", tz="UTC"),
+        )
+
+        result = be.run_backtest(df, mtf_df, _symbol_info(), initial_balance=10_000.0, cfg=self._fake_config())
 
         assert result.trades == []
         assert result.final_balance == pytest.approx(10_000.0)

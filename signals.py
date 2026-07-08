@@ -1,15 +1,18 @@
 """
 Rule-based entry signal generation.
 
-Strategy: trend-filtered mean reversion.
-  - Only trade WITH the dominant trend (price vs EMA200), fading short-term
+Strategy: trend-filtered mean reversion, confirmed across two timeframes.
+  - Only trade WITH the dominant trend (price vs EMA200 on H1, AND price vs
+    EMA on the higher MTF_TIMEFRAME_NAME timeframe), fading short-term
     extremes rather than fighting the trend outright. This combination
     historically produces a higher win-rate than either pure mean-reversion
     (which fights strong trends) or pure breakout trading alone.
-  - Long setup:  trend is bullish (close > EMA200) AND close <= lower
-    Bollinger Band AND RSI < oversold threshold.
-  - Short setup: trend is bearish (close < EMA200) AND close >= upper
-    Bollinger Band AND RSI > overbought threshold.
+  - Long setup:  H1 trend bullish (close > EMA200) AND higher-timeframe
+    trend also bullish AND close <= lower Bollinger Band AND RSI < oversold
+    threshold.
+  - Short setup: H1 trend bearish (close < EMA200) AND higher-timeframe
+    trend also bearish AND close >= upper Bollinger Band AND RSI >
+    overbought threshold.
 
 No Martingale, no grid, no averaging down: this module only ever proposes a
 single fresh entry based on current indicator values on the most recently
@@ -19,6 +22,7 @@ CLOSED candle — it has no concept of a losing streak or prior trades.
 from collections import namedtuple
 
 import config
+import mtf_trend
 from indicators import compute_all
 from logger_setup import get_logger
 
@@ -28,10 +32,13 @@ Signal = namedtuple("Signal", ["direction", "entry_price", "atr", "reason"])
 # direction: "buy" or "sell"
 
 
-def generate(df):
+def generate(df, mtf_df):
     """
-    Given an OHLC DataFrame (as returned by data_feed.get_ohlc), compute
-    indicators and evaluate the entry rules against the last CLOSED bar.
+    Given an H1 OHLC DataFrame (as returned by data_feed.get_ohlc) and a
+    higher-timeframe OHLC DataFrame (data_feed.get_ohlc with
+    timeframe_name=config.MTF_TIMEFRAME_NAME), evaluate the entry rules
+    against the last CLOSED H1 bar plus the higher timeframe's current
+    trend.
 
     Returns a Signal namedtuple, or None if no setup is present.
     """
@@ -43,10 +50,15 @@ def generate(df):
         log.debug("Indicators not fully warmed up yet, skipping signal check")
         return None
 
+    higher_tf_trend = mtf_trend.latest_trend(mtf_df, config.MTF_EMA_PERIOD)
+    if higher_tf_trend is None:
+        log.debug("Higher-timeframe (%s) trend not warmed up yet, skipping signal check", config.MTF_TIMEFRAME_NAME)
+        return None
+
     close = last["close"]
 
-    bullish_trend = close > last["ema_trend"]
-    bearish_trend = close < last["ema_trend"]
+    bullish_trend = close > last["ema_trend"] and higher_tf_trend == "bullish"
+    bearish_trend = close < last["ema_trend"] and higher_tf_trend == "bearish"
 
     long_setup = (
         bullish_trend
@@ -67,7 +79,8 @@ def generate(df):
             reason=(
                 f"close {close:.5f} <= lower BB {last['bb_lower']:.5f}, "
                 f"RSI {last['rsi']:.1f} < {config.RSI_OVERSOLD}, "
-                f"trend bullish (close > EMA{config.TREND_FILTER_EMA_PERIOD})"
+                f"trend bullish (close > EMA{config.TREND_FILTER_EMA_PERIOD} "
+                f"and {config.MTF_TIMEFRAME_NAME} trend bullish)"
             ),
         )
 
@@ -79,7 +92,8 @@ def generate(df):
             reason=(
                 f"close {close:.5f} >= upper BB {last['bb_upper']:.5f}, "
                 f"RSI {last['rsi']:.1f} > {config.RSI_OVERBOUGHT}, "
-                f"trend bearish (close < EMA{config.TREND_FILTER_EMA_PERIOD})"
+                f"trend bearish (close < EMA{config.TREND_FILTER_EMA_PERIOD} "
+                f"and {config.MTF_TIMEFRAME_NAME} trend bearish)"
             ),
         )
 

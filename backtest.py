@@ -53,8 +53,12 @@ def main():
             args.symbol, args.start, args.end,
             timeframe_name=args.timeframe, use_cache=not args.no_cache,
         )
+        mtf_df = fetch_historical_bars(
+            args.symbol, args.start, args.end,
+            timeframe_name=config.MTF_TIMEFRAME_NAME, use_cache=not args.no_cache,
+        )
         symbol_info = broker.get_symbol_info(args.symbol)
-        result = run_backtest(df, symbol_info, initial_balance=args.balance)
+        result = run_backtest(df, mtf_df, symbol_info, initial_balance=args.balance)
         stats = summarize(result.trades, result.equity_curve, args.balance)
         print(format_report(args.symbol, args.start, args.end, stats))
     finally:

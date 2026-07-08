@@ -32,12 +32,12 @@ def _manage_symbol(symbol, enriched_df):
     trade_manager.manage_open_positions(symbol, current_atr)
 
 
-def _attempt_entry(symbol, df):
+def _attempt_entry(symbol, df, mtf_df):
     symbol_info = broker.get_symbol_info(symbol)
     if not spread_filter.is_spread_acceptable(symbol_info):
         return
 
-    signal = signals.generate(df)
+    signal = signals.generate(df, mtf_df)
     if signal is None:
         return
 
@@ -100,7 +100,10 @@ def _run_one_cycle(breaker):
         all_open_tickets.update(p.ticket for p in open_positions)
 
         if not breaker.halted() and not open_positions:
-            _attempt_entry(symbol, df)
+            mtf_df = data_feed.get_ohlc(
+                symbol, timeframe_name=config.MTF_TIMEFRAME_NAME, bars=config.MTF_BARS_TO_FETCH
+            )
+            _attempt_entry(symbol, df, mtf_df)
 
     trade_manager.prune_closed_positions(all_open_tickets)
 

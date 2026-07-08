@@ -80,9 +80,13 @@ def main():
             args.symbol, args.start, args.end,
             timeframe_name=args.timeframe, use_cache=not args.no_cache,
         )
+        mtf_df = fetch_historical_bars(
+            args.symbol, args.start, args.end,
+            timeframe_name=config.MTF_TIMEFRAME_NAME, use_cache=not args.no_cache,
+        )
         symbol_info = broker.get_symbol_info(args.symbol)
         folds, oos_trades, final_balance = walk_forward(
-            df, symbol_info,
+            df, mtf_df, symbol_info,
             in_sample_bars=args.in_sample_bars,
             out_sample_bars=args.out_sample_bars,
             initial_balance=args.balance,
