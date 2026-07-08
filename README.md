@@ -119,6 +119,23 @@ See `backtest_engine.py`'s module docstring for the OHLC-bar approximations
 this implies (no tick-level intrabar precision, no slippage modeling) —
 read it before trusting the exact numbers.
 
+### Walk-forward parameter optimization
+
+`optimize.py` sweeps RSI/Bollinger/ATR threshold parameters (not period
+lengths) across sequential in-sample/out-of-sample folds: each fold's
+parameters are chosen using only preceding data, then measured on data the
+optimizer never saw when choosing them. Only out-of-sample results are
+reported — this is what guards against simply overfitting the full
+historical dataset and reporting a cherry-picked "best" combo.
+
+```
+python optimize.py --symbol EURUSD --start 2025-01-01 --end 2026-07-01
+python optimize.py --symbol EURUSD --start 2025-01-01 --end 2026-07-01 \
+    --in-sample-bars 3000 --out-sample-bars 750 --objective profit_factor
+```
+
+See `backtest_optimize.py`'s module docstring for what's swept and why.
+
 ## Testing
 
 ```
@@ -127,9 +144,9 @@ pytest
 ```
 
 Covers the stateless modules (`risk_management.py`, `indicators.py`,
-`backtest_engine.py`) and the SQLite persistence layer
-(`trade_state_store.py`) directly; live-only modules that require a real MT5
-connection (`broker.py`, `order_execution.py`, `trade_manager.py`,
+`backtest_engine.py`, `backtest_optimize.py`) and the SQLite persistence
+layer (`trade_state_store.py`) directly; live-only modules that require a
+real MT5 connection (`broker.py`, `order_execution.py`, `trade_manager.py`,
 `circuit_breaker.py`) are exercised via the dry-run/live loop instead, not
 unit tests.
 

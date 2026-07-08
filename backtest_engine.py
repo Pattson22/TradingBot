@@ -72,8 +72,6 @@ TradeRecord = namedtuple(
 
 BacktestResult = namedtuple("BacktestResult", ["trades", "equity_curve", "final_balance"])
 
-_WARMUP_COLUMNS = ["rsi", "ema_trend", "bb_upper", "bb_lower", "atr"]
-
 
 class _OpenPosition:
     def __init__(self, direction, entry_time, entry_price, volume, stop_distance, sl, tp,
@@ -109,20 +107,20 @@ def _r_multiple_at(direction, entry_price, price, initial_stop_distance):
 
 
 def _check_entry(row, cfg):
-    close = row["close"]
-    bullish_trend = close > row["ema_trend"]
-    bearish_trend = close < row["ema_trend"]
+    close = row.close
+    bullish_trend = close > row.ema_trend
+    bearish_trend = close < row.ema_trend
 
-    if bullish_trend and close <= row["bb_lower"] and row["rsi"] < cfg.RSI_OVERSOLD:
+    if bullish_trend and close <= row.bb_lower and row.rsi < cfg.RSI_OVERSOLD:
         return "buy"
-    if bearish_trend and close >= row["bb_upper"] and row["rsi"] > cfg.RSI_OVERBOUGHT:
+    if bearish_trend and close >= row.bb_upper and row.rsi > cfg.RSI_OVERBOUGHT:
         return "sell"
     return None
 
 
 def _open_position(direction, row, time, symbol_info, balance, cfg):
-    entry_price = row["close"]
-    atr_value = row["atr"]
+    entry_price = row.close
+    atr_value = row.atr
 
     levels = risk_management.calculate_trade_levels(
         direction, entry_price, atr_value, cfg.ATR_SL_MULTIPLIER, cfg.ATR_TP_MULTIPLIER
@@ -147,7 +145,7 @@ def _open_position(direction, row, time, symbol_info, balance, cfg):
     )
 
 
-def _manage_position(position, row, cfg):
+def _manage_position(position, row, time, cfg):
     """
     Advance `position` by one bar. Returns (realized_pnl_delta, closed_trade
     or None). `realized_pnl_delta` is the P&L booked to balance this bar
@@ -156,13 +154,13 @@ def _manage_position(position, row, cfg):
     direction = position.direction
 
     if direction == "buy":
-        sl_hit = row["low"] <= position.sl
-        tp_hit = row["high"] >= position.tp
-        favourable_price = row["high"]
+        sl_hit = row.low <= position.sl
+        tp_hit = row.high >= position.tp
+        favourable_price = row.high
     else:
-        sl_hit = row["high"] >= position.sl
-        tp_hit = row["low"] <= position.tp
-        favourable_price = row["low"]
+        sl_hit = row.high >= position.sl
+        tp_hit = row.low <= position.tp
+        favourable_price = row.low
 
     if sl_hit or tp_hit:
         exit_price = position.sl if sl_hit else position.tp  # SL wins ties, see module docstring
@@ -178,7 +176,7 @@ def _manage_position(position, row, cfg):
             direction=direction,
             entry_time=position.entry_time,
             entry_price=position.entry_price,
-            exit_time=row.name,
+            exit_time=time,
             exit_price=exit_price,
             initial_volume=position.initial_volume,
             total_pnl=total_pnl,
@@ -216,12 +214,12 @@ def _manage_position(position, row, cfg):
     if position.partial_done:
         if direction == "buy":
             position.extreme_price = max(position.extreme_price, favourable_price)
-            trail_sl = position.extreme_price - row["atr"] * cfg.ATR_TRAIL_MULTIPLIER
+            trail_sl = position.extreme_price - row.atr * cfg.ATR_TRAIL_MULTIPLIER
             if trail_sl > position.sl:
                 position.sl = trail_sl
         else:
             position.extreme_price = min(position.extreme_price, favourable_price)
-            trail_sl = position.extreme_price + row["atr"] * cfg.ATR_TRAIL_MULTIPLIER
+            trail_sl = position.extreme_price + row.atr * cfg.ATR_TRAIL_MULTIPLIER
             if trail_sl < position.sl:
                 position.sl = trail_sl
 
@@ -230,8 +228,15 @@ def _manage_position(position, row, cfg):
 
 def _unrealized_pnl(position, row):
     return _price_pnl(
-        position.direction, position.entry_price, row["close"], position.remaining_volume,
+        position.direction, position.entry_price, row.close, position.remaining_volume,
         position.tick_size, position.tick_value,
+    )
+
+
+def _warmup_incomplete(row):
+    return (
+        pd.isna(row.rsi) or pd.isna(row.ema_trend) or pd.isna(row.bb_upper)
+        or pd.isna(row.bb_lower) or pd.isna(row.atr)
     )
 
 
@@ -244,21 +249,34 @@ def run_backtest(df, symbol_info, initial_balance=10_000.0, cfg=default_config):
     Returns a BacktestResult(trades, equity_curve, final_balance).
     """
     enriched = compute_all(df, cfg)
+    return run_backtest_on_enriched(enriched, symbol_info, initial_balance=initial_balance, cfg=cfg)
 
+
+def run_backtest_on_enriched(enriched, symbol_info, initial_balance=10_000.0, cfg=default_config):
+    """
+    Same as run_backtest, but takes a DataFrame that already has the
+    rsi/ema_trend/bb_upper/bb_lower/atr columns attached (via
+    indicators.compute_all). Used by walk-forward optimization, which needs
+    to slice pre-computed indicators into folds rather than recomputing them
+    fresh on each fold's raw bars — recomputing per-fold would cold-restart
+    every rolling/EWM warm-up (e.g. EMA200) at the start of each fold, which
+    doesn't reflect a bot that's actually been running continuously.
+    """
     balance = initial_balance
     position = None
     trades = []
     equity_index = []
     equity_values = []
 
-    for time, row in enriched.iterrows():
+    for row in enriched.itertuples():
+        time = row.Index
         if position is not None:
-            pnl_delta, closed_trade = _manage_position(position, row, cfg)
+            pnl_delta, closed_trade = _manage_position(position, row, time, cfg)
             balance += pnl_delta
             if closed_trade is not None:
                 trades.append(closed_trade)
                 position = None
-        elif not row[_WARMUP_COLUMNS].isna().any():
+        elif not _warmup_incomplete(row):
             signal = _check_entry(row, cfg)
             if signal is not None:
                 position = _open_position(signal, row, time, symbol_info, balance, cfg)

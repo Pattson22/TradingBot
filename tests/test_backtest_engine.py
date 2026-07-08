@@ -100,7 +100,7 @@ class TestManagePosition:
     def test_stop_loss_hit_closes_at_minus_1r(self):
         position = self._fresh_buy_position()
         bar = _row(high=1.1000, low=1.0980, close=1.0985, atr=0.0010)
-        pnl_delta, trade = be._manage_position(position, bar, _cfg())
+        pnl_delta, trade = be._manage_position(position, bar, bar.name, _cfg())
         assert trade is not None
         assert trade.exit_price == pytest.approx(1.0985)
         assert trade.r_multiple == pytest.approx(-1.0)
@@ -109,7 +109,7 @@ class TestManagePosition:
     def test_take_profit_hit_closes_at_plus_3r(self):
         position = self._fresh_buy_position()
         bar = _row(high=1.1045, low=1.1000, close=1.1040, atr=0.0010)
-        pnl_delta, trade = be._manage_position(position, bar, _cfg())
+        pnl_delta, trade = be._manage_position(position, bar, bar.name, _cfg())
         assert trade is not None
         assert trade.exit_price == pytest.approx(1.1045)
         # ATR_TP_MULTIPLIER/ATR_SL_MULTIPLIER = 4.5/1.5 = 3R by construction.
@@ -118,7 +118,7 @@ class TestManagePosition:
     def test_both_sl_and_tp_in_range_ties_to_stop_loss(self):
         position = self._fresh_buy_position()
         bar = _row(high=1.1050, low=1.0980, close=1.1000, atr=0.0010)
-        pnl_delta, trade = be._manage_position(position, bar, _cfg())
+        pnl_delta, trade = be._manage_position(position, bar, bar.name, _cfg())
         assert trade is not None
         assert trade.exit_price == pytest.approx(position.sl)
         assert trade.r_multiple == pytest.approx(-1.0)
@@ -126,7 +126,7 @@ class TestManagePosition:
     def test_breakeven_moves_stop_without_closing(self):
         position = self._fresh_buy_position()
         bar = _row(high=1.10151, low=1.0995, close=1.1010, atr=0.0010)
-        pnl_delta, trade = be._manage_position(position, bar, _cfg())
+        pnl_delta, trade = be._manage_position(position, bar, bar.name, _cfg())
         assert trade is None
         assert pnl_delta == pytest.approx(0.0)
         assert position.be_applied is True
@@ -136,7 +136,7 @@ class TestManagePosition:
     def test_partial_tp_realizes_pnl_and_engages_trailing(self):
         position = self._fresh_buy_position()
         bar = _row(high=1.10301, low=1.0995, close=1.1020, atr=0.0010)
-        pnl_delta, trade = be._manage_position(position, bar, _cfg())
+        pnl_delta, trade = be._manage_position(position, bar, bar.name, _cfg())
 
         assert trade is None
         assert position.be_applied is True
@@ -152,13 +152,13 @@ class TestManagePosition:
     def test_trailing_stop_only_tightens_never_loosens(self):
         position = self._fresh_buy_position()
         bar1 = _row(high=1.10301, low=1.0995, close=1.1020, atr=0.0010)
-        be._manage_position(position, bar1, _cfg())
+        be._manage_position(position, bar1, bar1.name, _cfg())
         sl_after_first_trail = position.sl
 
         # Price pulls back (lower high) -> extreme_price shouldn't regress, so
         # the trailing stop must not loosen even though this bar's high is lower.
         bar2 = _row(high=1.1020, low=1.1005, close=1.1010, atr=0.0010)
-        be._manage_position(position, bar2, _cfg())
+        be._manage_position(position, bar2, bar2.name, _cfg())
         assert position.sl == pytest.approx(sl_after_first_trail)
 
 
