@@ -97,6 +97,28 @@ PARTIAL_TP_FRACTION = 0.5   # fraction of position volume closed at that point
 MAX_DAILY_DRAWDOWN_PCT = 0.02  # 2% intraday equity drawdown halts trading
 
 # ---------------------------------------------------------------------------
+# SESSION (TIME-OF-DAY) FILTER
+# ---------------------------------------------------------------------------
+# Opt-in, default OFF: only restrict entries to specific UTC hours (of the
+# signal bar's own closed-candle timestamp, not wall-clock "now") once
+# backtest.py/optimize.py have shown it actually helps for this strategy —
+# don't flip this on as a fixed default without that evidence.
+SESSION_FILTER_ENABLED = False
+SESSION_ALLOWED_HOURS_UTC = list(range(7, 17))  # London + NY session, placeholder
+
+# ---------------------------------------------------------------------------
+# VOLATILITY REGIME FILTER
+# ---------------------------------------------------------------------------
+# Opt-in, default OFF: skip entries when the current ATR's percentile rank
+# within its own trailing history is outside [MIN, MAX] -- too low suggests
+# chop with no follow-through, too high suggests news-spike risk. Same
+# don't-flip-on-without-backtest-evidence caveat as the session filter above.
+VOLATILITY_FILTER_ENABLED = False
+VOLATILITY_PERCENTILE_LOOKBACK = 100
+VOLATILITY_MIN_PERCENTILE = 0.20
+VOLATILITY_MAX_PERCENTILE = 0.80
+
+# ---------------------------------------------------------------------------
 # SPREAD FILTER
 # ---------------------------------------------------------------------------
 # Maximum acceptable spread per symbol, expressed in broker "points"

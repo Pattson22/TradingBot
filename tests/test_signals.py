@@ -66,3 +66,50 @@ class TestGenerate:
         monkeypatch.setattr(signals, "compute_all", lambda df, cfg: _enriched_row(rsi=50))
         result = signals.generate(_DUMMY_H1_DF, _BULLISH_MTF)
         assert result is None
+
+    def test_session_filter_disabled_by_default_allows_any_hour(self, monkeypatch):
+        monkeypatch.setattr(signals, "compute_all", lambda df, cfg: _enriched_row())
+        result = signals.generate(_DUMMY_H1_DF, _BULLISH_MTF)
+        assert result is not None
+
+    def test_session_filter_blocks_entry_outside_allowed_hours(self, monkeypatch):
+        # Fixture row's timestamp (2026-01-01) has hour=0.
+        monkeypatch.setattr(signals.config, "SESSION_FILTER_ENABLED", True)
+        monkeypatch.setattr(signals.config, "SESSION_ALLOWED_HOURS_UTC", list(range(7, 17)))
+        monkeypatch.setattr(signals, "compute_all", lambda df, cfg: _enriched_row())
+        result = signals.generate(_DUMMY_H1_DF, _BULLISH_MTF)
+        assert result is None
+
+    def test_session_filter_allows_entry_inside_allowed_hours(self, monkeypatch):
+        monkeypatch.setattr(signals.config, "SESSION_FILTER_ENABLED", True)
+        monkeypatch.setattr(signals.config, "SESSION_ALLOWED_HOURS_UTC", [0])
+        monkeypatch.setattr(signals, "compute_all", lambda df, cfg: _enriched_row())
+        result = signals.generate(_DUMMY_H1_DF, _BULLISH_MTF)
+        assert result is not None
+
+    def test_volatility_filter_disabled_by_default_ignores_atr_percentile(self, monkeypatch):
+        monkeypatch.setattr(signals, "compute_all", lambda df, cfg: _enriched_row())  # no atr_percentile field
+        result = signals.generate(_DUMMY_H1_DF, _BULLISH_MTF)
+        assert result is not None
+
+    def test_volatility_filter_blocks_entry_outside_percentile_range(self, monkeypatch):
+        monkeypatch.setattr(signals.config, "VOLATILITY_FILTER_ENABLED", True)
+        monkeypatch.setattr(signals.config, "VOLATILITY_MIN_PERCENTILE", 0.20)
+        monkeypatch.setattr(signals.config, "VOLATILITY_MAX_PERCENTILE", 0.80)
+        monkeypatch.setattr(signals, "compute_all", lambda df, cfg: _enriched_row(atr_percentile=0.05))
+        result = signals.generate(_DUMMY_H1_DF, _BULLISH_MTF)
+        assert result is None
+
+    def test_volatility_filter_blocks_entry_when_atr_percentile_nan(self, monkeypatch):
+        monkeypatch.setattr(signals.config, "VOLATILITY_FILTER_ENABLED", True)
+        monkeypatch.setattr(signals, "compute_all", lambda df, cfg: _enriched_row(atr_percentile=float("nan")))
+        result = signals.generate(_DUMMY_H1_DF, _BULLISH_MTF)
+        assert result is None
+
+    def test_volatility_filter_allows_entry_inside_percentile_range(self, monkeypatch):
+        monkeypatch.setattr(signals.config, "VOLATILITY_FILTER_ENABLED", True)
+        monkeypatch.setattr(signals.config, "VOLATILITY_MIN_PERCENTILE", 0.20)
+        monkeypatch.setattr(signals.config, "VOLATILITY_MAX_PERCENTILE", 0.80)
+        monkeypatch.setattr(signals, "compute_all", lambda df, cfg: _enriched_row(atr_percentile=0.5))
+        result = signals.generate(_DUMMY_H1_DF, _BULLISH_MTF)
+        assert result is not None

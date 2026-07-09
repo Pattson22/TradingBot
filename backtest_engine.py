@@ -114,10 +114,26 @@ def _r_multiple_at(direction, entry_price, price, initial_stop_distance):
     return (entry_price - price) / initial_stop_distance
 
 
+def _bar_hour_utc(row):
+    """The bar's own UTC hour, from either an itertuples row (.Index, the
+    production path) or a bare pd.Series test fixture (.name) -- see the
+    module docstring's note on attribute access working across both."""
+    timestamp = row.Index if hasattr(row, "Index") else row.name
+    return timestamp.hour
+
+
 def _check_entry(row, cfg):
     close = row.close
     bullish_trend = close > row.ema_trend and row.mtf_trend == "bullish"
     bearish_trend = close < row.ema_trend and row.mtf_trend == "bearish"
+
+    if cfg.SESSION_FILTER_ENABLED and _bar_hour_utc(row) not in cfg.SESSION_ALLOWED_HOURS_UTC:
+        return None
+
+    if cfg.VOLATILITY_FILTER_ENABLED:
+        pctl = row.atr_percentile
+        if math.isnan(pctl) or not (cfg.VOLATILITY_MIN_PERCENTILE <= pctl <= cfg.VOLATILITY_MAX_PERCENTILE):
+            return None
 
     if bullish_trend and close <= row.bb_lower and row.rsi < cfg.RSI_OVERSOLD:
         return "buy"

@@ -76,6 +76,18 @@ def disconnect():
     log.info("Disconnected from MT5")
 
 
+def reconnect():
+    """
+    Force a full disconnect + reconnect cycle. Used to recover from a broken
+    IPC channel (e.g. the MT5 terminal process was closed and relaunched) --
+    an existing initialize() handle in this process doesn't automatically
+    re-attach to a new terminal instance, so shutdown() then a fresh
+    connect() is required.
+    """
+    mt5.shutdown()
+    return connect()
+
+
 def get_account_snapshot():
     """
     Return the current balance and equity, fetched fresh from the broker.

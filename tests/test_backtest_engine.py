@@ -24,6 +24,12 @@ def _cfg(**overrides):
         ATR_TRAIL_MULTIPLIER=2.0,
         MTF_TIMEFRAME_NAME="H4",
         MTF_EMA_PERIOD=3,
+        SESSION_FILTER_ENABLED=False,
+        SESSION_ALLOWED_HOURS_UTC=list(range(24)),
+        VOLATILITY_FILTER_ENABLED=False,
+        VOLATILITY_PERCENTILE_LOOKBACK=3,
+        VOLATILITY_MIN_PERCENTILE=0.20,
+        VOLATILITY_MAX_PERCENTILE=0.80,
     )
     base.update(overrides)
     return types.SimpleNamespace(**base)
@@ -41,8 +47,8 @@ def _symbol_info(**overrides):
     return types.SimpleNamespace(**base)
 
 
-def _row(**fields):
-    return pd.Series(fields, name=pd.Timestamp("2026-01-01", tz="UTC"))
+def _row(_time=None, **fields):
+    return pd.Series(fields, name=_time or pd.Timestamp("2026-01-01", tz="UTC"))
 
 
 class TestPriceHelpers:
@@ -85,6 +91,58 @@ class TestCheckEntry:
     def test_no_signal_when_higher_timeframe_not_warmed_up(self):
         row = _row(close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=25, mtf_trend=None)
         assert be._check_entry(row, _cfg()) is None
+
+    def test_session_filter_disabled_by_default_allows_any_hour(self):
+        row = _row(
+            _time=pd.Timestamp("2026-01-01 03:00", tz="UTC"),
+            close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=25, mtf_trend="bullish",
+        )
+        assert be._check_entry(row, _cfg()) == "buy"
+
+    def test_session_filter_blocks_entry_outside_allowed_hours(self):
+        row = _row(
+            _time=pd.Timestamp("2026-01-01 03:00", tz="UTC"),
+            close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=25, mtf_trend="bullish",
+        )
+        cfg = _cfg(SESSION_FILTER_ENABLED=True, SESSION_ALLOWED_HOURS_UTC=list(range(7, 17)))
+        assert be._check_entry(row, cfg) is None
+
+    def test_session_filter_allows_entry_inside_allowed_hours(self):
+        row = _row(
+            _time=pd.Timestamp("2026-01-01 09:00", tz="UTC"),
+            close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=25, mtf_trend="bullish",
+        )
+        cfg = _cfg(SESSION_FILTER_ENABLED=True, SESSION_ALLOWED_HOURS_UTC=list(range(7, 17)))
+        assert be._check_entry(row, cfg) == "buy"
+
+    def test_volatility_filter_disabled_by_default_ignores_atr_percentile(self):
+        row = _row(close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=25, mtf_trend="bullish")
+        # No atr_percentile field at all -- must not be touched when disabled.
+        assert be._check_entry(row, _cfg()) == "buy"
+
+    def test_volatility_filter_blocks_entry_outside_percentile_range(self):
+        row = _row(
+            close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=25, mtf_trend="bullish",
+            atr_percentile=0.05,
+        )
+        cfg = _cfg(VOLATILITY_FILTER_ENABLED=True)
+        assert be._check_entry(row, cfg) is None
+
+    def test_volatility_filter_blocks_entry_when_atr_percentile_nan(self):
+        row = _row(
+            close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=25, mtf_trend="bullish",
+            atr_percentile=float("nan"),
+        )
+        cfg = _cfg(VOLATILITY_FILTER_ENABLED=True)
+        assert be._check_entry(row, cfg) is None
+
+    def test_volatility_filter_allows_entry_inside_percentile_range(self):
+        row = _row(
+            close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=25, mtf_trend="bullish",
+            atr_percentile=0.5,
+        )
+        cfg = _cfg(VOLATILITY_FILTER_ENABLED=True)
+        assert be._check_entry(row, cfg) == "buy"
 
 
 class TestOpenPosition:

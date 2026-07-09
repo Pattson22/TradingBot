@@ -88,6 +88,16 @@ class TestAtr:
         assert result.iloc[1] == pytest.approx(11.0)
 
 
+class TestAtrPercentileRank:
+    def test_rolling_percentile_rank_of_latest_value(self):
+        s = pd.Series([3.0, 1.0, 2.0, 5.0, 4.0])
+        result = indicators.atr_percentile_rank(s, lookback=3)
+        assert result.iloc[:2].isna().all()
+        # window [3,1,2] latest=2 -> 2/3; [1,2,5] latest=5 -> 3/3; [2,5,4] latest=4 -> 2/3
+        expected = [2 / 3, 1.0, 2 / 3]
+        assert result.iloc[2:].tolist() == pytest.approx(expected)
+
+
 class TestComputeAll:
     def _fake_config(self):
         return types.SimpleNamespace(
@@ -96,6 +106,7 @@ class TestComputeAll:
             BOLLINGER_PERIOD=3,
             BOLLINGER_STD_DEV=2.0,
             ATR_PERIOD=3,
+            VOLATILITY_PERCENTILE_LOOKBACK=3,
         )
 
     def test_attaches_all_expected_columns(self):
@@ -110,12 +121,12 @@ class TestComputeAll:
         )
         result = indicators.compute_all(df, self._fake_config())
 
-        for col in ("rsi", "ema_trend", "bb_upper", "bb_lower", "atr"):
+        for col in ("rsi", "ema_trend", "bb_upper", "bb_lower", "atr", "atr_percentile"):
             assert col in result.columns
 
         # Warm-up rows are NaN, later rows are fully populated.
         assert result[["rsi", "ema_trend", "bb_upper", "bb_lower", "atr"]].iloc[0].isna().all()
-        assert not result[["rsi", "ema_trend", "bb_upper", "bb_lower", "atr"]].iloc[-1].isna().any()
+        assert not result[["rsi", "ema_trend", "bb_upper", "bb_lower", "atr", "atr_percentile"]].iloc[-1].isna().any()
 
     def test_does_not_mutate_input_dataframe(self):
         df = pd.DataFrame(

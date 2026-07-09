@@ -17,9 +17,16 @@ Strategy: trend-filtered mean reversion, confirmed across two timeframes.
 No Martingale, no grid, no averaging down: this module only ever proposes a
 single fresh entry based on current indicator values on the most recently
 CLOSED candle — it has no concept of a losing streak or prior trades.
+
+Two additional opt-in gates (both default OFF in config.py, see
+SESSION_FILTER_ENABLED / VOLATILITY_FILTER_ENABLED) can restrict entries to
+certain UTC hours and/or a normal ATR-percentile volatility regime, applied
+before the strategy rules above.
 """
 
 from collections import namedtuple
+
+import pandas as pd
 
 import config
 import mtf_trend
@@ -54,6 +61,16 @@ def generate(df, mtf_df):
     if higher_tf_trend is None:
         log.debug("Higher-timeframe (%s) trend not warmed up yet, skipping signal check", config.MTF_TIMEFRAME_NAME)
         return None
+
+    if config.SESSION_FILTER_ENABLED and last.name.hour not in config.SESSION_ALLOWED_HOURS_UTC:
+        log.debug("Session filter blocked entry: bar hour %d UTC not in allowed hours", last.name.hour)
+        return None
+
+    if config.VOLATILITY_FILTER_ENABLED:
+        pctl = last["atr_percentile"]
+        if pd.isna(pctl) or not (config.VOLATILITY_MIN_PERCENTILE <= pctl <= config.VOLATILITY_MAX_PERCENTILE):
+            log.debug("Volatility regime filter blocked entry: ATR percentile %s outside allowed range", pctl)
+            return None
 
     close = last["close"]
 

@@ -68,6 +68,20 @@ def atr(df, period=14):
     return true_range.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
 
 
+def atr_percentile_rank(atr_series, lookback=100):
+    """
+    Rolling percentile rank (0-1) of each bar's ATR value within its own
+    trailing `lookback` bars -- e.g. 0.9 means "ATR is higher than 90% of
+    the last `lookback` readings". Used to gate entries by volatility
+    regime (too quiet -> chop with no follow-through; too wild -> news-spike
+    risk), see config.VOLATILITY_FILTER_ENABLED.
+    """
+    def _rank(window):
+        return (window <= window[-1]).mean()
+
+    return atr_series.rolling(window=lookback, min_periods=lookback).apply(_rank, raw=True)
+
+
 def compute_all(df, config):
     """
     Convenience helper: attach every indicator the strategy needs as new
@@ -80,4 +94,5 @@ def compute_all(df, config):
         out["close"], config.BOLLINGER_PERIOD, config.BOLLINGER_STD_DEV
     )
     out["atr"] = atr(out, config.ATR_PERIOD)
+    out["atr_percentile"] = atr_percentile_rank(out["atr"], config.VOLATILITY_PERCENTILE_LOOKBACK)
     return out

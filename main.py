@@ -164,6 +164,30 @@ def _run_one_cycle(breaker, news_guard):
     trade_manager.prune_closed_positions(all_open_tickets)
 
 
+RECONNECT_MAX_ATTEMPTS = 5
+RECONNECT_BASE_DELAY_SECONDS = 10
+
+
+def _reconnect_with_backoff():
+    """Retry broker.reconnect() with linearly increasing backoff. Returns
+    True once reconnected, False if every attempt in this call failed (the
+    next poll cycle's own BrokerConnectionError will trigger another round,
+    so a temporarily-unreachable terminal keeps getting retried indefinitely
+    rather than leaving the bot stuck logging the same failure forever)."""
+    for attempt in range(1, RECONNECT_MAX_ATTEMPTS + 1):
+        delay = RECONNECT_BASE_DELAY_SECONDS * attempt
+        log.warning("Reconnect attempt %d/%d in %ds...", attempt, RECONNECT_MAX_ATTEMPTS, delay)
+        time.sleep(delay)
+        try:
+            broker.reconnect()
+            log.info("Reconnected to MT5 successfully")
+            return True
+        except broker.BrokerConnectionError:
+            log.exception("Reconnect attempt %d/%d failed", attempt, RECONNECT_MAX_ATTEMPTS)
+    log.error("All reconnect attempts failed this cycle - will try again next cycle")
+    return False
+
+
 def run():
     configure_logging()
     broker.connect()
@@ -177,6 +201,9 @@ def run():
         while True:
             try:
                 _run_one_cycle(breaker, news_guard)
+            except broker.BrokerConnectionError:
+                log.exception("Broker connection lost")
+                _reconnect_with_backoff()
             except Exception:
                 log.exception("Unhandled error in main loop iteration - continuing")
 
