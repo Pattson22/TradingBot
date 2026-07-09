@@ -137,8 +137,25 @@ DEFAULT_MAX_SPREAD_POINTS = 30  # fallback for symbols not listed above
 # default rather than failing safe/blocking-all, since silently blocking
 # every trade because a URL wasn't set would be a surprising default for a
 # feature nobody asked to enable yet.
+#
+# Current provider: jblanked.com's Calendar API (see
+# https://www.jblanked.com/news/api/docs/calendar/ and
+# economic_calendar.transform_jblanked_event). Their free tier is capped at
+# 1 request/day, so NEWS_CALENDAR_URL should point at the WEEK endpoint
+# (not "today" -- a day-boundary gap would otherwise open up between the
+# daily cache refresh and midnight UTC), filtered server-side to High
+# impact only, with offset=3 to align their timestamps to UTC, e.g.:
+#   https://www.jblanked.com/news/api/mql5/calendar/week/?impact=High&offset=3
+# NEWS_CALENDAR_API_KEY is sent as "Authorization: Api-Key <key>" (see
+# main.py._build_news_guard) -- get a key from your jblanked.com profile.
 NEWS_CALENDAR_URL = os.environ.get("NEWS_CALENDAR_URL") or None
 NEWS_CALENDAR_API_KEY = os.environ.get("NEWS_CALENDAR_API_KEY") or None
+
+# How long to reuse a cached calendar fetch before hitting the API again
+# (economic_calendar.CachingCalendarProvider). 24h matches jblanked.com's
+# free-tier 1 request/day cap -- means an intraday revision to an event's
+# scheduled time won't be picked up until the next day's refresh.
+NEWS_CALENDAR_CACHE_TTL_SECONDS = 86400
 
 NEWS_RESTRICT_BEFORE_MINUTES = 30
 NEWS_RESTRICT_AFTER_MINUTES = 30

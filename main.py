@@ -31,13 +31,22 @@ log = get_logger(__name__)
 
 def _build_news_guard():
     """Opt-in: only built if NEWS_CALENDAR_URL is configured, so the news
-    filter doesn't change behaviour for anyone who hasn't set it up."""
+    filter doesn't change behaviour for anyone who hasn't set it up.
+
+    Wired to jblanked.com's Calendar API specifically (see config.py's
+    NEWS_CALENDAR_URL comment) -- swap the header scheme and transform if
+    you point this at a different provider later."""
     if not config.NEWS_CALENDAR_URL:
         log.warning("NEWS_CALENDAR_URL not set - economic calendar news filter is DISABLED")
         return None
 
-    headers = {"Authorization": f"Bearer {config.NEWS_CALENDAR_API_KEY}"} if config.NEWS_CALENDAR_API_KEY else {}
-    provider = economic_calendar.HttpJsonCalendarProvider(config.NEWS_CALENDAR_URL, headers=headers)
+    headers = {"Authorization": f"Api-Key {config.NEWS_CALENDAR_API_KEY}"} if config.NEWS_CALENDAR_API_KEY else {}
+    raw_provider = economic_calendar.HttpJsonCalendarProvider(
+        config.NEWS_CALENDAR_URL, headers=headers, transform=economic_calendar.transform_jblanked_event,
+    )
+    provider = economic_calendar.CachingCalendarProvider(
+        raw_provider, ttl_seconds=config.NEWS_CALENDAR_CACHE_TTL_SECONDS,
+    )
     return news_filter.EconomicCalendarFilter(
         provider,
         restrict_before_minutes=config.NEWS_RESTRICT_BEFORE_MINUTES,

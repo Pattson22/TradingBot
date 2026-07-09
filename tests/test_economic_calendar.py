@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.error import URLError
 
 import pytest
@@ -117,3 +117,92 @@ class TestHttpJsonCalendarProvider:
         provider = ec.HttpJsonCalendarProvider("https://example.com/calendar")
         with pytest.raises(ec.CalendarUnavailableError):
             provider.get_events()
+
+    def test_skips_malformed_event_without_failing_whole_batch(self, monkeypatch):
+        payload = [
+            {"timestamp": "2026-07-09T18:00:00+00:00", "impact": "None", "currency": "USD", "title": "Minor release"},
+            {"timestamp": "2026-07-09T12:30:00+00:00", "impact": "High", "currency": "USD", "title": "NFP"},
+        ]
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return json.dumps(payload).encode()
+
+        monkeypatch.setattr(ec.urllib.request, "urlopen", lambda req, timeout: FakeResponse())
+
+        provider = ec.HttpJsonCalendarProvider("https://example.com/calendar")
+        events = provider.get_events()
+        assert len(events) == 1
+        assert events[0].title == "NFP"
+
+
+class TestCachingCalendarProvider:
+    def test_reuses_cached_result_within_ttl(self):
+        calls = []
+
+        class CountingProvider(ec.CalendarProvider):
+            def get_events(self):
+                calls.append(1)
+                return [_event()]
+
+        now = [datetime(2026, 1, 1, tzinfo=timezone.utc)]
+
+        def fake_clock():
+            return now[0]
+
+        provider = ec.CachingCalendarProvider(CountingProvider(), ttl_seconds=60, clock=fake_clock)
+
+        provider.get_events()
+        provider.get_events()  # same instant, should hit cache
+        assert len(calls) == 1
+
+    def test_refetches_after_ttl_expires(self):
+        calls = []
+
+        class CountingProvider(ec.CalendarProvider):
+            def get_events(self):
+                calls.append(1)
+                return [_event()]
+
+        now = [datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)]
+
+        def fake_clock():
+            return now[0]
+
+        provider = ec.CachingCalendarProvider(CountingProvider(), ttl_seconds=60, clock=fake_clock)
+        provider.get_events()
+        now[0] = now[0] + timedelta(seconds=61)
+        provider.get_events()
+        assert len(calls) == 2
+
+    def test_refresh_failure_propagates_rather_than_serving_stale_data(self):
+        class FailingProvider(ec.CalendarProvider):
+            def get_events(self):
+                raise ec.CalendarUnavailableError("boom")
+
+        provider = ec.CachingCalendarProvider(FailingProvider(), ttl_seconds=60)
+        with pytest.raises(ec.CalendarUnavailableError):
+            provider.get_events()
+
+
+class TestTransformJblankedEvent:
+    def test_maps_fields_and_parses_date_as_utc(self):
+        raw = {
+            "Name": "Core CPI m/m",
+            "Currency": "USD",
+            "Impact": "High",
+            "Date": "2026.02.08 15:30:00",
+        }
+        mapped = ec.transform_jblanked_event(raw)
+        assert mapped == {
+            "timestamp": "2026-02-08T15:30:00+00:00",
+            "impact": "High",
+            "currency": "USD",
+            "title": "Core CPI m/m",
+        }
