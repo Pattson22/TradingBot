@@ -84,7 +84,7 @@ ATR_TRAIL_MULTIPLIER = 2.0  # trailing stop distance for the runner leg
 # ---------------------------------------------------------------------------
 # RISK MANAGEMENT
 # ---------------------------------------------------------------------------
-RISK_PER_TRADE = 0.01  # 1% of current account balance risked per trade
+RISK_PER_TRADE = 0.0025  # 0.25% of current account balance risked per trade
 
 # Multi-tier exit management, expressed in multiples of initial risk (R)
 BREAKEVEN_TRIGGER_R = 1.0   # move SL to entry once price reaches +1R
