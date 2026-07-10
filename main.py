@@ -12,6 +12,8 @@ Run with `python main.py`. Stop with Ctrl+C for a clean disconnect.
 
 import time
 
+import MetaTrader5 as mt5
+
 import broker
 import circuit_breaker
 import config
@@ -91,6 +93,22 @@ def _manage_symbol(symbol, enriched_df):
     trade_manager.manage_open_positions(symbol, current_atr)
 
 
+def _aggregate_open_risk():
+    """Sum current worst-case risk (account currency) across every open
+    position this bot holds, across ALL symbols -- see
+    config.MAX_PORTFOLIO_RISK_PCT for why this is checked separately from
+    the per-trade RISK_PER_TRADE cap."""
+    total = 0.0
+    for position in broker.get_open_positions():
+        direction = "buy" if position.type == mt5.ORDER_TYPE_BUY else "sell"
+        symbol_info = broker.get_symbol_info(position.symbol)
+        total += risk_management.calculate_position_risk(
+            direction, position.price_open, position.sl, position.volume,
+            symbol_info.trade_tick_size, symbol_info.trade_tick_value,
+        )
+    return total
+
+
 def _attempt_entry(symbol, df, mtf_df, news_guard):
     symbol_info = broker.get_symbol_info(symbol)
     if not spread_filter.is_spread_acceptable(symbol_info):
@@ -128,6 +146,20 @@ def _attempt_entry(symbol, df, mtf_df, news_guard):
     )
     if lot is None:
         log.info("Skipping %s signal: computed lot size below broker minimum", symbol)
+        return
+
+    proposed_risk = risk_management.calculate_position_risk(
+        signal.direction, signal.entry_price, levels.stop_loss, lot,
+        symbol_info.trade_tick_size, symbol_info.trade_tick_value,
+    )
+    committed_risk = _aggregate_open_risk()
+    max_portfolio_risk = account["balance"] * config.MAX_PORTFOLIO_RISK_PCT
+    if committed_risk + proposed_risk > max_portfolio_risk:
+        log.info(
+            "Skipping %s signal: portfolio risk cap reached (committed=%.2f + "
+            "proposed=%.2f > cap=%.2f)",
+            symbol, committed_risk, proposed_risk, max_portfolio_risk,
+        )
         return
 
     tick = broker.get_current_tick(symbol)

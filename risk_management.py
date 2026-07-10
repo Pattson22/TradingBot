@@ -73,6 +73,37 @@ def calculate_trade_levels(direction, entry_price, atr_value, sl_multiplier, tp_
     return TradeLevels(stop_loss=stop_loss, take_profit=take_profit, stop_distance=stop_distance)
 
 
+def calculate_position_risk(direction, entry_price, stop_loss, volume, tick_size, tick_value):
+    """
+    Current worst-case loss (in account currency) if `stop_loss` is hit.
+
+    Works for both an already-open position (entry_price=its price_open,
+    stop_loss=its CURRENT sl, which trade_manager.py may have already moved
+    to break-even or trailed into profit) and a not-yet-sent proposed trade
+    (entry_price=signal price, stop_loss=the freshly computed level) -- the
+    math is identical either way, which is what lets main.py sum this
+    across open positions AND a new candidate trade to enforce
+    config.MAX_PORTFOLIO_RISK_PCT.
+
+    Returns 0.0 once the stop is at or past break-even (no further downside
+    on this leg), rather than a negative number -- a de-risked position
+    shouldn't ever *subtract* from other positions' risk, just stop adding
+    to it.
+    """
+    if direction == "buy":
+        losing_distance = entry_price - stop_loss
+    elif direction == "sell":
+        losing_distance = stop_loss - entry_price
+    else:
+        raise ValueError(f"direction must be 'buy' or 'sell', got {direction!r}")
+
+    if losing_distance <= 0:
+        return 0.0
+
+    ticks = losing_distance / tick_size
+    return ticks * tick_value * volume
+
+
 def calculate_lot_size(
     balance,
     risk_per_trade,

@@ -31,6 +31,52 @@ class TestCalculateTradeLevels:
             rm.calculate_trade_levels("hold", 1.1000, 0.0012, 1.5, 4.5)
 
 
+class TestCalculatePositionRisk:
+    def test_buy_with_stop_below_entry_has_positive_risk(self):
+        risk = rm.calculate_position_risk(
+            "buy", entry_price=1.1000, stop_loss=1.0982, volume=0.55,
+            tick_size=0.00001, tick_value=1.0,
+        )
+        # (1.1000-1.0982)/0.00001 = 180 ticks * $1.0 * 0.55 lots
+        assert risk == pytest.approx(180 * 1.0 * 0.55)
+
+    def test_sell_with_stop_above_entry_has_positive_risk(self):
+        risk = rm.calculate_position_risk(
+            "sell", entry_price=1.1000, stop_loss=1.1018, volume=0.55,
+            tick_size=0.00001, tick_value=1.0,
+        )
+        assert risk == pytest.approx(180 * 1.0 * 0.55)
+
+    def test_buy_at_breakeven_has_zero_risk(self):
+        risk = rm.calculate_position_risk(
+            "buy", entry_price=1.1000, stop_loss=1.1000, volume=0.55,
+            tick_size=0.00001, tick_value=1.0,
+        )
+        assert risk == 0.0
+
+    def test_buy_trailed_into_profit_has_zero_risk(self):
+        # SL above entry -- worst case is a locked-in gain, not a loss.
+        risk = rm.calculate_position_risk(
+            "buy", entry_price=1.1000, stop_loss=1.1050, volume=0.55,
+            tick_size=0.00001, tick_value=1.0,
+        )
+        assert risk == 0.0
+
+    def test_sell_trailed_into_profit_has_zero_risk(self):
+        risk = rm.calculate_position_risk(
+            "sell", entry_price=1.1000, stop_loss=1.0950, volume=0.55,
+            tick_size=0.00001, tick_value=1.0,
+        )
+        assert risk == 0.0
+
+    def test_rejects_unknown_direction(self):
+        with pytest.raises(ValueError):
+            rm.calculate_position_risk(
+                "hold", entry_price=1.1000, stop_loss=1.0982, volume=0.55,
+                tick_size=0.00001, tick_value=1.0,
+            )
+
+
 class TestCalculateLotSize:
     """Tick economics mirror the worked example in risk_management.py's
     module docstring: 5-digit EURUSD, tick_size=0.00001, tick_value=$1/lot."""

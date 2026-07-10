@@ -94,6 +94,18 @@ ATR_TRAIL_MULTIPLIER = 2.0  # trailing stop distance for the runner leg
 # ---------------------------------------------------------------------------
 RISK_PER_TRADE = 0.0025  # 0.25% of current account balance risked per trade
 
+# Caps combined worst-case risk across ALL open positions (any symbol), not
+# just the per-trade cap above -- otherwise two symbols signaling in the
+# same cycle (e.g. EURUSD + AUDUSD, both USD-quoted and prone to moving
+# together on a USD-driven day) could each independently pass the
+# per-trade check while stacking correlated risk. A position's contribution
+# shrinks to zero once its stop has moved to break-even or better (see
+# risk_management.calculate_position_risk), so mature/de-risked winners
+# free up budget for new entries automatically rather than counting
+# against this cap forever.
+MAX_PORTFOLIO_RISK_PCT = 0.005  # 0.5% = 2x RISK_PER_TRADE, room for both
+                                 # current symbols at full risk simultaneously
+
 # Multi-tier exit management, expressed in multiples of initial risk (R)
 BREAKEVEN_TRIGGER_R = 1.0   # move SL to entry once price reaches +1R
 PARTIAL_TP_TRIGGER_R = 2.0  # take partial profit once price reaches +2R
