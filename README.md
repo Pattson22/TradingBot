@@ -1,12 +1,37 @@
 # Conservative Forex Trading Bot
 
-A rule-based, low-risk-per-trade Forex bot for EUR/USD, built on MetaTrader 5.
-Philosophy: capital preservation first, compounding via small, consistent
-gains — no Martingale, no grid trading, no averaging down. (USD/JPY was
-originally in scope too but was dropped after `backtest.py`/`optimize.py`
-both showed it structurally losing money with this strategy across 18
-months of history — see git history around the "Drop USDJPY" commit if
-you're picking this project back up and want the full story.)
+A rule-based, low-risk-per-trade Forex bot for EUR/USD and AUD/USD, built on
+MetaTrader 5. Philosophy: capital preservation first, compounding via small,
+consistent gains — no Martingale, no grid trading, no averaging down.
+
+USD/JPY and GBP/USD were both evaluated as candidates and rejected:
+`backtest.py`/`optimize.py` showed both structurally losing money with this
+strategy across the same 18-month history that EUR/USD and AUD/USD were
+profitable on (fixed-default and walk-forward, with and without MTF
+confirmation). See git history around the "Drop USDJPY" and "Add AUDUSD,
+drop GBPUSD candidate" commits for the full evidence if you're evaluating
+another pair.
+
+## Current state (as of 2026-07-10)
+
+- Running live (`DRY_RUN=false`) against an FxPro **demo** account, launched
+  via the desktop shortcut described below. No live-cash account is
+  connected. Zero trades have fired yet since going live — expected, not a
+  bug, given the backtested trade frequency below.
+- `config.RISK_PER_TRADE` is deliberately set to **0.25%** (not the 1% a
+  fresh checkout might suggest) while confidence builds on live fills;
+  step it back up once satisfied. See `config.MAX_PORTFOLIO_RISK_PCT` too.
+- The news filter (`news_filter.py`) is wired to jblanked.com's calendar API
+  (see Configuration below) but **not yet active** — needs a real API key
+  from the user, which hasn't been supplied yet. `NEWS_CALENDAR_URL` unset
+  = filter disabled, bot runs exactly as before.
+- Two opt-in strategy filters exist but are **disabled by default**
+  pending stronger evidence: `SESSION_FILTER_ENABLED` (time-of-day) and
+  `VOLATILITY_FILTER_ENABLED` (ATR-percentile regime). A same-day backtest
+  comparison found a mild plausible improvement from a broad London+NY
+  session filter, but the volatility filter's promising-looking numbers
+  were on too few trades (3) to trust. Don't flip either on as a live
+  default without more validation first.
 
 ## How it works
 
@@ -14,10 +39,20 @@ you're picking this project back up and want the full story.)
   to the Bollinger Bands + RSI extremes, but only in the direction of the
   longer-term EMA(200) trend, additionally confirmed against a higher
   timeframe's own trend (`mtf_trend.py`, `config.MTF_TIMEFRAME_NAME` = H4 by
-  default) — both timeframes must agree before an entry fires.
-- **Risk** (`risk_management.py`): every trade risks a fixed 1% of the
+  default) — both timeframes must agree before an entry fires. This is
+  deliberately selective: the 18-month backtest produced roughly one trade
+  every 5-7 weeks per symbol, so long gaps with no trades are expected.
+  Two additional opt-in gates (`SESSION_FILTER_ENABLED`,
+  `VOLATILITY_FILTER_ENABLED`, see Current state above) can further
+  restrict entries once validated.
+- **Risk** (`risk_management.py`): every trade risks a fixed fraction of the
   *current* account balance (`config.RISK_PER_TRADE`), with position size
-  derived from the current ATR-based stop distance — never a fixed lot size.
+  derived from the current ATR-based stop distance — never a fixed lot size,
+  and never rounded up past the cap. `config.MAX_PORTFOLIO_RISK_PCT` caps
+  combined worst-case risk across *all* open positions/symbols at once (not
+  just per-trade), so two symbols signaling in the same cycle can't stack
+  correlated risk beyond that ceiling. A position's contribution to that
+  cap drops to zero once its stop has moved to break-even or better.
 - **Execution** (`order_execution.py`): entry, stop-loss, and take-profit are
   sent in one atomic request so a position is never briefly unprotected.
 - **Exit management** (`trade_manager.py`): stop moves to break-even at +1R,
@@ -39,8 +74,15 @@ you're picking this project back up and want the full story.)
   the stop to break-even or flattening the position, per
   `config.NEWS_PROTECTION_ACTION`. Fails safe: if the calendar source errors,
   it blocks all new entries and recommends closing every open position
-  rather than trading blind. Run `python news_filter.py` for a self-contained
-  timeline demo (no MT5 connection needed — uses a mock calendar).
+  rather than trading blind. `economic_calendar.CachingCalendarProvider`
+  reuses fetched calendar data for `NEWS_CALENDAR_CACHE_TTL_SECONDS` (24h by
+  default) instead of hitting the API every poll cycle. Run
+  `python news_filter.py` for a self-contained timeline demo (no MT5
+  connection needed — uses a mock calendar).
+- **Auto-reconnect** (`main.py`, `broker.py`): if the MT5 terminal connection
+  drops (e.g. the terminal process was closed/crashed), the main loop
+  catches `BrokerConnectionError` specifically and retries `broker.reconnect()`
+  with linear backoff instead of spinning forever logging the same failure.
 
 ## Requirements
 
@@ -92,15 +134,29 @@ export MT5_SERVER="FxPro-Demo"
 export MT5_PATH="C:\Program Files\MetaTrader 5\terminal64.exe"  # optional
 ```
 
-Every strategy/risk/execution parameter (risk %, ATR multipliers, RSI
-thresholds, spread caps, symbols, timeframe, poll interval) lives in
-`config.py` — read through it before running.
+Every strategy/risk/execution parameter (risk %, portfolio risk cap, ATR
+multipliers, RSI thresholds, spread caps, symbols, timeframe, poll interval,
+opt-in filter toggles) lives in `config.py` — read through it before running.
 
-**Optional — news filter:** set `NEWS_CALENDAR_URL` (and `NEWS_CALENDAR_API_KEY`
-if your provider needs one) to enable `news_filter.py`'s macro-news guardrail.
-Point it at any calendar API/proxy that returns JSON matching
-`economic_calendar.HttpJsonCalendarProvider`'s documented schema — left unset
-by default, the bot runs exactly as before with the filter disabled.
+**Optional — news filter:** currently wired to **jblanked.com's Calendar
+API** specifically (`economic_calendar.transform_jblanked_event`,
+`main.py._build_news_guard`) — sign up at jblanked.com, generate an API key
+from your profile, then set:
+
+```powershell
+$env:NEWS_CALENDAR_URL = "https://www.jblanked.com/news/api/mql5/calendar/week/?impact=High&offset=3"
+$env:NEWS_CALENDAR_API_KEY = "your-jblanked-api-key"
+```
+
+Left unset by default, the bot runs exactly as before with the filter
+disabled. Their free tier is capped at 1 request/day, which is why the URL
+above uses the **week** endpoint (not "today") plus a 24h cache — see
+`config.py`'s `NEWS_CALENDAR_*` comments for the reasoning, including an
+unverified assumption about their `offset` timezone parameter that's worth
+spot-checking against a known release time once you have a real key.
+To point this at a different provider instead, swap the `transform` and
+auth header in `main.py._build_news_guard` — `HttpJsonCalendarProvider` is a
+generic JSON adapter, not jblanked-specific.
 
 ### DRY_RUN (start here)
 
@@ -115,6 +171,8 @@ correct before setting `DRY_RUN=false` against a demo account. Note that
 `DRY_RUN` only skips the final order-send calls — the bot still needs a
 real, logged-in MT5 terminal connection to fetch balance, prices, and OHLC
 history, so the terminal must be running and logged in even during a dry run.
+`DRY_RUN` is **not** a persistent environment variable — it must be set
+explicitly every time the bot is (re)started, or it silently reverts to true.
 
 ## Running
 
@@ -122,7 +180,23 @@ history, so the terminal must be running and logged in even during a dry run.
 python main.py
 ```
 
-Stop with `Ctrl+C` for a clean shutdown/disconnect.
+Stop with `Ctrl+C` for a clean shutdown/disconnect. `broker.connect()` will
+auto-launch the MT5 terminal itself (via `MT5_PATH`) if it isn't already
+running — no separate manual terminal launch needed.
+
+**Desktop shortcut:** `start_bot.bat` (repo root) sets `DRY_RUN=false` and
+runs `python main.py` from the correct directory, with the console window
+left open so you can watch live logs; closing that window stops the bot. A
+Windows desktop shortcut named "Start Trading Bot" points at it — the
+simplest way to (re)start the bot without a dev environment open.
+
+**Health monitoring:** `check_status.py` opens its own independent MT5
+connection (safe to run alongside the live bot) and reports whether
+`main.py` is running, a fresh balance/equity/open-positions snapshot, and a
+tail of `tradingbot.log`, appending to `logs/status_check.log`. A Windows
+Scheduled Task named `TradingBotHealthCheck` runs it hourly automatically —
+recreate it with `schtasks /Create` if setting this up on a new machine (see
+git history for the exact command used).
 
 ## Backtesting
 
@@ -136,12 +210,16 @@ python backtest.py --symbol EURUSD --start 2025-01-01 --end 2026-07-01
 ```
 
 Requires the same running/logged-in MT5 terminal as live trading (historical
-bars and symbol tick economics are both sourced from it). Bars are cached to
-`backtest_data/` so repeat runs over the same window don't re-fetch. Output
-and logs go to `logs/backtest.log`, kept separate from the live bot's log.
-See `backtest_engine.py`'s module docstring for the OHLC-bar approximations
-this implies (no tick-level intrabar precision, no slippage modeling) —
-read it before trusting the exact numbers.
+bars and symbol tick economics are both sourced from it). If you're
+backtesting a symbol not in `config.SYMBOLS`, select it in the terminal's
+Market Watch first (`mt5.symbol_select(symbol, True)`) — `broker.connect()`
+only auto-selects the symbols already configured, and MT5's
+`copy_rates_range` silently returns nothing for an unselected symbol. Bars
+are cached to `backtest_data/` so repeat runs over the same window don't
+re-fetch. Output and logs go to `logs/backtest.log`, kept separate from the
+live bot's log. See `backtest_engine.py`'s module docstring for the OHLC-bar
+approximations this implies (no tick-level intrabar precision, no slippage
+modeling) — read it before trusting the exact numbers.
 
 ### Walk-forward parameter optimization
 
@@ -158,7 +236,12 @@ python optimize.py --symbol EURUSD --start 2025-01-01 --end 2026-07-01 \
     --in-sample-bars 3000 --out-sample-bars 750 --objective profit_factor
 ```
 
-See `backtest_optimize.py`'s module docstring for what's swept and why.
+See `backtest_optimize.py`'s module docstring for what's swept and why. A
+walk-forward fold's chosen parameter is a claim about that fold only — not
+a recommendation to apply it as a permanent fixed default. (RSI 35/65 was
+tried as a fixed default after walk-forward runs kept picking it, and made
+things measurably worse when applied uniformly instead of adaptively — see
+git history / memory around 2026-07-08.)
 
 ## Testing
 
@@ -172,8 +255,8 @@ Covers the stateless modules (`risk_management.py`, `indicators.py`,
 `economic_calendar.py`, `news_filter.py`) and the SQLite persistence layer
 (`trade_state_store.py`) directly; live-only modules that require a real MT5
 connection (`broker.py`, `order_execution.py`, `trade_manager.py`,
-`circuit_breaker.py`) are exercised via the dry-run/live loop instead, not
-unit tests.
+`circuit_breaker.py`, `main.py`) are exercised via the dry-run/live loop
+instead, not unit tests.
 
 ## Known limitations / follow-ups
 
@@ -184,3 +267,10 @@ unit tests.
 - `backtest_engine.py` only has bar-level (not tick-level) granularity for
   exit-tier management, so its numbers are a reasonable approximation, not a
   perfect replay of what live polling would have done — see its docstring.
+- No currently-open position has yet gone through a full live exit-tier
+  lifecycle (break-even → partial → trail → close) end-to-end — the demo
+  run so far has been quiet. Worth watching closely the first time it does.
+- Before adding further symbols, be aware of multiple-comparisons risk: the
+  more pairs get backtested, the more likely one looks good by chance alone
+  on any fixed historical window. AUDUSD's own supporting sample is still
+  small (10-14 trades depending on test).
