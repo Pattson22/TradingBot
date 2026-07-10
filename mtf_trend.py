@@ -73,9 +73,20 @@ def align_series(h1_index, mtf_df, ema_period, mtf_timeframe_name):
     h1_frame = pd.DataFrame(index=h1_index)
     h1_frame.index.name = "time"
 
+    # merge_asof requires both "time" columns to share the exact same
+    # datetime64 resolution. A fresh MT5 fetch (unit="s") and this
+    # function's own index + pd.Timedelta arithmetic above can end up at
+    # different resolutions (e.g. datetime64[s] vs [us]) depending on the
+    # pandas version, even though both represent UTC instants -- normalize
+    # both explicitly rather than relying on them already matching.
+    h1_reset = h1_frame.reset_index().sort_values("time")
+    mtf_reset = mtf_trend_df.reset_index()
+    h1_reset["time"] = h1_reset["time"].astype("datetime64[ns, UTC]")
+    mtf_reset["time"] = mtf_reset["time"].astype("datetime64[ns, UTC]")
+
     merged = pd.merge_asof(
-        h1_frame.reset_index().sort_values("time"),
-        mtf_trend_df.reset_index(),
+        h1_reset,
+        mtf_reset,
         on="time",
         direction="backward",
     ).set_index("time")

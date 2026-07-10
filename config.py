@@ -42,7 +42,15 @@ DRY_RUN = os.environ.get("DRY_RUN", "true").lower() in ("1", "true", "yes")
 # came back negative — see memory/backtesting_harness.md and
 # memory/mtf_confirmation.md), unlike EURUSD which was consistently
 # profitable across the same variations.
-SYMBOLS = ["EURUSD"]
+# AUDUSD added 2026-07-10: same 18-month backtest.py/optimize.py evidence
+# process applied to GBPUSD and AUDUSD as candidates. GBPUSD came back
+# negative both fixed-default (-0.39%) and walk-forward (-0.58%) -- same
+# pattern as USDJPY, left out. AUDUSD came back positive both ways
+# (fixed-default +2.99%/10 trades, walk-forward +1.00%/14 trades) --
+# added, though note the fixed-default number (70% win rate, zero losing
+# trades) is a small, suspiciously clean sample; the walk-forward result
+# is the more trustworthy signal here.
+SYMBOLS = ["EURUSD", "AUDUSD"]
 
 # Working timeframe for signal generation. Uses MetaTrader5 timeframe
 # constants (mt5.TIMEFRAME_H1 etc.) — imported where needed to avoid a
@@ -127,6 +135,7 @@ VOLATILITY_MAX_PERCENTILE = 0.80
 MAX_SPREAD_POINTS = {
     "EURUSD": 20,   # ~2.0 pip cap
     "USDJPY": 20,
+    "AUDUSD": 20,
 }
 DEFAULT_MAX_SPREAD_POINTS = 30  # fallback for symbols not listed above
 
