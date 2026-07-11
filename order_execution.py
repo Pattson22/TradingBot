@@ -16,6 +16,7 @@ bot process dies immediately after sending.
 import MetaTrader5 as mt5
 
 import config
+import execution_log_store
 from logger_setup import get_logger
 
 log = get_logger(__name__)
@@ -71,7 +72,24 @@ def send_market_order(symbol, direction, lot, stop_loss, take_profit, current_ti
         return None
 
     result = mt5.order_send(request)
-    return _check_result(result, f"send_market_order({symbol})")
+    _check_result(result, f"send_market_order({symbol})")
+
+    try:
+        slippage = execution_log_store.record(
+            ticket=result.order, symbol=symbol, direction=direction,
+            requested_price=price, executed_price=result.price,
+        )
+        log.info(
+            "Execution: %s %s requested=%.5f filled=%.5f slippage=%+.5f",
+            symbol, direction, price, result.price, slippage,
+        )
+    except Exception:
+        log.exception(
+            "Failed to record execution slippage for %s %s -- trade itself already succeeded",
+            symbol, direction,
+        )
+
+    return result
 
 
 def modify_stop_loss(position, new_sl, new_tp=None):

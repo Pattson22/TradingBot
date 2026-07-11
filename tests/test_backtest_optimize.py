@@ -17,7 +17,7 @@ def _fake_config():
         RSI_OVERSOLD=30,
         RSI_OVERBOUGHT=70,
         ATR_SL_MULTIPLIER=1.5,
-        ATR_TP_MULTIPLIER=4.5,
+        RISK_REWARD_RATIO=3.0,
         RISK_PER_TRADE=0.01,
         BREAKEVEN_TRIGGER_R=1.0,
         PARTIAL_TP_TRIGGER_R=2.0,
@@ -33,6 +33,13 @@ def _fake_config():
         VOLATILITY_MAX_PERCENTILE=0.80,
         MAX_SPREAD_POINTS={},
         DEFAULT_MAX_SPREAD_POINTS=30,
+        ADX_PERIOD=3,
+        ADX_TRENDING_THRESHOLD=25,
+        REGIME_ADAPTIVE_RSI_ENABLED=False,
+        RSI_OVERSOLD_TRENDING=40,
+        RSI_OVERBOUGHT_TRENDING=60,
+        RSI_OVERSOLD_RANGING=25,
+        RSI_OVERBOUGHT_RANGING=75,
     )
 
 
@@ -141,7 +148,7 @@ class TestWalkForwardSmoke:
             "RSI_OVERSOLD": [30],
             "BOLLINGER_STD_DEV": [2.0],
             "ATR_SL_MULTIPLIER": [1.5],
-            "ATR_TP_MULTIPLIER": [4.5],
+            "RISK_REWARD_RATIO": [3.0],
         }
 
         mtf_df = pd.DataFrame(

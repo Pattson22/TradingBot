@@ -88,6 +88,33 @@ class TestAtr:
         assert result.iloc[1] == pytest.approx(11.0)
 
 
+class TestAdx:
+    def test_strong_smooth_uptrend_saturates_near_100(self):
+        n = 60
+        closes = pd.Series(np.linspace(1.0, 1.30, n))
+        df = pd.DataFrame({"high": closes + 0.002, "low": closes - 0.002, "close": closes})
+        result = indicators.adx(df, period=14)
+        assert result.dropna().iloc[-1] > 90
+
+    def test_flat_choppy_series_stays_low(self):
+        rng = np.random.default_rng(0)
+        n = 60
+        flat = pd.Series(1.1 + rng.normal(0, 0.0003, n))
+        df = pd.DataFrame({"high": flat + 0.0005, "low": flat - 0.0005, "close": flat})
+        result = indicators.adx(df, period=14)
+        assert result.dropna().iloc[-1] < 25
+
+    def test_warms_up_after_roughly_two_periods(self):
+        # Two chained Wilder smoothings (DM/TR, then DX->ADX) each need
+        # `period` observations, so full warmup takes ~2x period, not period.
+        n = 40
+        closes = pd.Series(np.linspace(1.0, 1.10, n))
+        df = pd.DataFrame({"high": closes + 0.001, "low": closes - 0.001, "close": closes})
+        result = indicators.adx(df, period=14)
+        assert result.iloc[:26].isna().all()
+        assert result.iloc[26:].notna().all()
+
+
 class TestAtrPercentileRank:
     def test_rolling_percentile_rank_of_latest_value(self):
         s = pd.Series([3.0, 1.0, 2.0, 5.0, 4.0])
@@ -107,6 +134,7 @@ class TestComputeAll:
             BOLLINGER_STD_DEV=2.0,
             ATR_PERIOD=3,
             VOLATILITY_PERCENTILE_LOOKBACK=3,
+            ADX_PERIOD=3,
         )
 
     def test_attaches_all_expected_columns(self):
@@ -121,12 +149,14 @@ class TestComputeAll:
         )
         result = indicators.compute_all(df, self._fake_config())
 
-        for col in ("rsi", "ema_trend", "bb_upper", "bb_lower", "atr", "atr_percentile"):
+        for col in ("rsi", "ema_trend", "bb_upper", "bb_lower", "atr", "atr_percentile", "adx"):
             assert col in result.columns
 
         # Warm-up rows are NaN, later rows are fully populated.
         assert result[["rsi", "ema_trend", "bb_upper", "bb_lower", "atr"]].iloc[0].isna().all()
-        assert not result[["rsi", "ema_trend", "bb_upper", "bb_lower", "atr", "atr_percentile"]].iloc[-1].isna().any()
+        assert not result[
+            ["rsi", "ema_trend", "bb_upper", "bb_lower", "atr", "atr_percentile", "adx"]
+        ].iloc[-1].isna().any()
 
     def test_does_not_mutate_input_dataframe(self):
         df = pd.DataFrame(

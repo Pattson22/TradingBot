@@ -59,6 +59,11 @@ data — read before trusting the numbers):
    EMA200 filter, this warmup cost is paid once at the very start of
    whatever date range is requested (no automatic pre-fetch of extra
    lookback), so it eats a larger fraction of short backtest windows.
+9. The ADX-based regime-adaptive RSI thresholds (market_regime.py, opt-in
+   via cfg.REGIME_ADAPTIVE_RSI_ENABLED) are mirrored here from signals.py's
+   live logic, same as the session/volatility filters -- run this backtest
+   with it enabled before trusting it live, since it changes which trades
+   get taken, not just cost accounting.
 """
 
 import math
@@ -67,6 +72,7 @@ from collections import namedtuple
 import pandas as pd
 
 import config as default_config
+import market_regime
 import mtf_trend
 import risk_management
 from indicators import compute_all
@@ -150,9 +156,19 @@ def _check_entry(row, cfg, max_spread_points=float("inf")):
         if math.isnan(pctl) or not (cfg.VOLATILITY_MIN_PERCENTILE <= pctl <= cfg.VOLATILITY_MAX_PERCENTILE):
             return None
 
-    if bullish_trend and close <= row.bb_lower and row.rsi < cfg.RSI_OVERSOLD:
+    rsi_oversold, rsi_overbought = cfg.RSI_OVERSOLD, cfg.RSI_OVERBOUGHT
+    if cfg.REGIME_ADAPTIVE_RSI_ENABLED:
+        regime = market_regime.classify(row.adx, cfg.ADX_TRENDING_THRESHOLD)
+        if regime is None:
+            return None
+        if regime == market_regime.TRENDING:
+            rsi_oversold, rsi_overbought = cfg.RSI_OVERSOLD_TRENDING, cfg.RSI_OVERBOUGHT_TRENDING
+        else:
+            rsi_oversold, rsi_overbought = cfg.RSI_OVERSOLD_RANGING, cfg.RSI_OVERBOUGHT_RANGING
+
+    if bullish_trend and close <= row.bb_lower and row.rsi < rsi_oversold:
         return "buy"
-    if bearish_trend and close >= row.bb_upper and row.rsi > cfg.RSI_OVERBOUGHT:
+    if bearish_trend and close >= row.bb_upper and row.rsi > rsi_overbought:
         return "sell"
     return None
 
@@ -163,7 +179,7 @@ def _open_position(direction, row, time, symbol_info, balance, cfg):
     atr_value = row.atr
 
     levels = risk_management.calculate_trade_levels(
-        direction, entry_price, atr_value, cfg.ATR_SL_MULTIPLIER, cfg.ATR_TP_MULTIPLIER
+        direction, entry_price, atr_value, cfg.ATR_SL_MULTIPLIER, cfg.RISK_REWARD_RATIO
     )
     lot = risk_management.calculate_lot_size(
         balance=balance,

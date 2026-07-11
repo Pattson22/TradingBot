@@ -16,19 +16,30 @@ class TestCalculateStopDistance:
 
 class TestCalculateTradeLevels:
     def test_buy_levels_bracket_entry_correctly(self):
-        levels = rm.calculate_trade_levels("buy", 1.1000, 0.0012, 1.5, 4.5)
+        levels = rm.calculate_trade_levels("buy", 1.1000, 0.0012, 1.5, 3.0)
         assert levels.stop_distance == pytest.approx(0.0018)
+        assert levels.take_profit == pytest.approx(1.1000 + 0.0018 * 3.0)
         assert levels.stop_loss == pytest.approx(1.1000 - 0.0018)
-        assert levels.take_profit == pytest.approx(1.1000 + 0.0012 * 4.5)
 
     def test_sell_levels_bracket_entry_correctly(self):
-        levels = rm.calculate_trade_levels("sell", 1.1000, 0.0012, 1.5, 4.5)
+        levels = rm.calculate_trade_levels("sell", 1.1000, 0.0012, 1.5, 3.0)
         assert levels.stop_loss == pytest.approx(1.1000 + 0.0018)
-        assert levels.take_profit == pytest.approx(1.1000 - 0.0012 * 4.5)
+        assert levels.take_profit == pytest.approx(1.1000 - 0.0018 * 3.0)
+
+    def test_take_profit_is_a_strict_multiple_of_stop_distance(self):
+        # TP must derive from stop_distance (ATR * sl_multiplier), not
+        # independently from atr_value -- so changing sl_multiplier alone
+        # (holding atr_value and risk_reward_ratio fixed) must move TP too,
+        # always preserving the exact ratio.
+        tight = rm.calculate_trade_levels("buy", 1.1000, 0.0012, 1.0, 2.0)
+        wide = rm.calculate_trade_levels("buy", 1.1000, 0.0012, 2.0, 2.0)
+        assert (tight.take_profit - 1.1000) == pytest.approx(tight.stop_distance * 2.0)
+        assert (wide.take_profit - 1.1000) == pytest.approx(wide.stop_distance * 2.0)
+        assert (wide.take_profit - 1.1000) == pytest.approx(2 * (tight.take_profit - 1.1000))
 
     def test_rejects_unknown_direction(self):
         with pytest.raises(ValueError):
-            rm.calculate_trade_levels("hold", 1.1000, 0.0012, 1.5, 4.5)
+            rm.calculate_trade_levels("hold", 1.1000, 0.0012, 1.5, 3.0)
 
 
 class TestCalculatePositionRisk:

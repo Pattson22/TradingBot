@@ -18,10 +18,13 @@ No Martingale, no grid, no averaging down: this module only ever proposes a
 single fresh entry based on current indicator values on the most recently
 CLOSED candle — it has no concept of a losing streak or prior trades.
 
-Two additional opt-in gates (both default OFF in config.py, see
-SESSION_FILTER_ENABLED / VOLATILITY_FILTER_ENABLED) can restrict entries to
-certain UTC hours and/or a normal ATR-percentile volatility regime, applied
-before the strategy rules above.
+Three additional opt-in gates (all default OFF in config.py, see
+SESSION_FILTER_ENABLED / VOLATILITY_FILTER_ENABLED / REGIME_ADAPTIVE_RSI_ENABLED)
+can restrict entries to certain UTC hours, a normal ATR-percentile
+volatility regime, and/or swap the RSI oversold/overbought thresholds based
+on an ADX-classified market regime (market_regime.py) -- Trending accepts a
+shallower pullback, Ranging requires a deeper extreme to avoid chop. All
+applied before the strategy rules above.
 """
 
 from collections import namedtuple
@@ -29,6 +32,7 @@ from collections import namedtuple
 import pandas as pd
 
 import config
+import market_regime
 import mtf_trend
 from indicators import compute_all
 from logger_setup import get_logger
@@ -72,6 +76,18 @@ def generate(df, mtf_df):
             log.debug("Volatility regime filter blocked entry: ATR percentile %s outside allowed range", pctl)
             return None
 
+    rsi_oversold, rsi_overbought = config.RSI_OVERSOLD, config.RSI_OVERBOUGHT
+    regime = None
+    if config.REGIME_ADAPTIVE_RSI_ENABLED:
+        regime = market_regime.classify(last["adx"], config.ADX_TRENDING_THRESHOLD)
+        if regime is None:
+            log.debug("ADX not fully warmed up yet, skipping signal check")
+            return None
+        if regime == market_regime.TRENDING:
+            rsi_oversold, rsi_overbought = config.RSI_OVERSOLD_TRENDING, config.RSI_OVERBOUGHT_TRENDING
+        else:
+            rsi_oversold, rsi_overbought = config.RSI_OVERSOLD_RANGING, config.RSI_OVERBOUGHT_RANGING
+
     close = last["close"]
 
     bullish_trend = close > last["ema_trend"] and higher_tf_trend == "bullish"
@@ -80,13 +96,15 @@ def generate(df, mtf_df):
     long_setup = (
         bullish_trend
         and close <= last["bb_lower"]
-        and last["rsi"] < config.RSI_OVERSOLD
+        and last["rsi"] < rsi_oversold
     )
     short_setup = (
         bearish_trend
         and close >= last["bb_upper"]
-        and last["rsi"] > config.RSI_OVERBOUGHT
+        and last["rsi"] > rsi_overbought
     )
+
+    regime_note = f", regime={regime}" if regime is not None else ""
 
     if long_setup:
         return Signal(
@@ -95,9 +113,9 @@ def generate(df, mtf_df):
             atr=last["atr"],
             reason=(
                 f"close {close:.5f} <= lower BB {last['bb_lower']:.5f}, "
-                f"RSI {last['rsi']:.1f} < {config.RSI_OVERSOLD}, "
+                f"RSI {last['rsi']:.1f} < {rsi_oversold}, "
                 f"trend bullish (close > EMA{config.TREND_FILTER_EMA_PERIOD} "
-                f"and {config.MTF_TIMEFRAME_NAME} trend bullish)"
+                f"and {config.MTF_TIMEFRAME_NAME} trend bullish){regime_note}"
             ),
         )
 
@@ -108,9 +126,9 @@ def generate(df, mtf_df):
             atr=last["atr"],
             reason=(
                 f"close {close:.5f} >= upper BB {last['bb_upper']:.5f}, "
-                f"RSI {last['rsi']:.1f} > {config.RSI_OVERBOUGHT}, "
+                f"RSI {last['rsi']:.1f} > {rsi_overbought}, "
                 f"trend bearish (close < EMA{config.TREND_FILTER_EMA_PERIOD} "
-                f"and {config.MTF_TIMEFRAME_NAME} trend bearish)"
+                f"and {config.MTF_TIMEFRAME_NAME} trend bearish){regime_note}"
             ),
         )
 

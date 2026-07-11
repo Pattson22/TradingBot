@@ -32,13 +32,17 @@ against the same fixed window — multiple-comparisons risk is real.
   (see Configuration below) but **not yet active** — needs a real API key
   from the user, which hasn't been supplied yet. `NEWS_CALENDAR_URL` unset
   = filter disabled, bot runs exactly as before.
-- Two opt-in strategy filters exist but are **disabled by default**
-  pending stronger evidence: `SESSION_FILTER_ENABLED` (time-of-day) and
-  `VOLATILITY_FILTER_ENABLED` (ATR-percentile regime). A same-day backtest
-  comparison found a mild plausible improvement from a broad London+NY
-  session filter, but the volatility filter's promising-looking numbers
-  were on too few trades (3) to trust. Don't flip either on as a live
-  default without more validation first.
+- Three opt-in strategy filters exist but are **disabled by default**
+  pending stronger evidence: `SESSION_FILTER_ENABLED` (time-of-day),
+  `VOLATILITY_FILTER_ENABLED` (ATR-percentile regime), and
+  `REGIME_ADAPTIVE_RSI_ENABLED` (ADX trend-strength regime -- swaps the
+  RSI oversold/overbought thresholds between a shallower "trending" pair
+  and a stricter "ranging" pair, see `market_regime.py`). A same-day
+  backtest comparison found a mild plausible improvement from a broad
+  London+NY session filter, but the volatility filter's promising-looking
+  numbers were on too few trades (3) to trust. The ADX regime filter is
+  new and has no backtest evidence behind it yet. Don't flip any of these
+  on as a live default without validating first.
 - NZDUSD and USDCHF added 2026-07-10 specifically to raise trade frequency
   (roughly one trade every 5-7 weeks per symbol was deemed too infrequent).
   Two other levers were tried first and rejected: dropping MTF confirmation
@@ -70,9 +74,9 @@ against the same fixed window — multiple-comparisons risk is real.
   default) — both timeframes must agree before an entry fires. This is
   deliberately selective: the 18-month backtest produced roughly one trade
   every 5-7 weeks per symbol, so long gaps with no trades are expected.
-  Two additional opt-in gates (`SESSION_FILTER_ENABLED`,
-  `VOLATILITY_FILTER_ENABLED`, see Current state above) can further
-  restrict entries once validated.
+  Three additional opt-in gates (`SESSION_FILTER_ENABLED`,
+  `VOLATILITY_FILTER_ENABLED`, `REGIME_ADAPTIVE_RSI_ENABLED`, see Current
+  state above) can further restrict entries once validated.
 - **Risk** (`risk_management.py`): every trade risks a fixed fraction of the
   *current* account balance (`config.RISK_PER_TRADE`), with position size
   derived from the current ATR-based stop distance — never a fixed lot size,
@@ -83,6 +87,9 @@ against the same fixed window — multiple-comparisons risk is real.
   cap drops to zero once its stop has moved to break-even or better.
 - **Execution** (`order_execution.py`): entry, stop-loss, and take-profit are
   sent in one atomic request so a position is never briefly unprotected.
+  Requested-vs-filled price is logged and persisted as slippage
+  (`execution_log_store.py`, same SQLite database as trade/circuit-breaker
+  state) for every live fill.
 - **Exit management** (`trade_manager.py`): stop moves to break-even at +1R,
   50% of the position is taken off at +2R, and the remainder trails on an
   ATR-based stop. Progress through these tiers is persisted to a small
@@ -91,7 +98,12 @@ against the same fixed window — multiple-comparisons risk is real.
 - **Circuit breaker** (`circuit_breaker.py`): a 2% intraday equity drawdown
   force-closes everything and halts new entries until the next calendar day.
 - **Spread filter** (`spread_filter.py`): blocks new entries when the spread
-  is wider than the configured baseline (e.g. around news events).
+  exceeds either a static per-symbol ceiling (`config.MAX_SPREAD_POINTS`,
+  e.g. around news events) or, once enough recent readings have
+  accumulated, a rolling multiple of that symbol's own average spread
+  (`config.SPREAD_ROLLING_MULTIPLIER`) -- catches an anomalous spike that's
+  still under the static cap. The rolling history is in-memory only and
+  resets on restart.
 - **News filter** (`news_filter.py`, `economic_calendar.py`): opt-in — only
   active if `NEWS_CALENDAR_URL` is set (see Configuration below). Blocks new
   entries within a configurable window around High-impact macro events for

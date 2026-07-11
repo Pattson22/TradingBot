@@ -16,7 +16,7 @@ def _cfg(**overrides):
         RSI_OVERSOLD=30,
         RSI_OVERBOUGHT=70,
         ATR_SL_MULTIPLIER=1.5,
-        ATR_TP_MULTIPLIER=4.5,
+        RISK_REWARD_RATIO=3.0,
         RISK_PER_TRADE=0.01,
         BREAKEVEN_TRIGGER_R=1.0,
         PARTIAL_TP_TRIGGER_R=2.0,
@@ -32,6 +32,13 @@ def _cfg(**overrides):
         VOLATILITY_MAX_PERCENTILE=0.80,
         MAX_SPREAD_POINTS={},
         DEFAULT_MAX_SPREAD_POINTS=30,
+        ADX_PERIOD=3,
+        ADX_TRENDING_THRESHOLD=25,
+        REGIME_ADAPTIVE_RSI_ENABLED=False,
+        RSI_OVERSOLD_TRENDING=40,
+        RSI_OVERBOUGHT_TRENDING=60,
+        RSI_OVERSOLD_RANGING=25,
+        RSI_OVERBOUGHT_RANGING=75,
     )
     base.update(overrides)
     return types.SimpleNamespace(**base)
@@ -165,6 +172,48 @@ class TestCheckEntry:
             spread=20,
         )
         assert be._check_entry(row, _cfg(), max_spread_points=20) == "buy"
+
+
+class TestCheckEntryRegimeAdaptiveRsi:
+    def test_disabled_by_default_ignores_adx_entirely(self):
+        # No "adx" field on the row at all -- must not be touched when disabled.
+        row = _row(close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=25, mtf_trend="bullish")
+        assert be._check_entry(row, _cfg()) == "buy"
+
+    def test_blocks_entry_when_adx_not_warmed_up(self):
+        row = _row(
+            close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=25, mtf_trend="bullish",
+            adx=float("nan"),
+        )
+        cfg = _cfg(REGIME_ADAPTIVE_RSI_ENABLED=True)
+        assert be._check_entry(row, cfg) is None
+
+    def test_trending_regime_allows_shallower_rsi_pullback(self):
+        # rsi=38: below TRENDING's oversold (40) but NOT below RANGING's (25).
+        row = _row(
+            close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=38, mtf_trend="bullish",
+            adx=30,
+        )
+        cfg = _cfg(REGIME_ADAPTIVE_RSI_ENABLED=True)
+        assert be._check_entry(row, cfg) == "buy"
+
+    def test_ranging_regime_requires_deeper_rsi_extreme(self):
+        # rsi=28 would satisfy the plain default RSI_OVERSOLD=30, but RANGING's
+        # stricter threshold (25) must block it.
+        row = _row(
+            close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=28, mtf_trend="bullish",
+            adx=10,
+        )
+        cfg = _cfg(REGIME_ADAPTIVE_RSI_ENABLED=True)
+        assert be._check_entry(row, cfg) is None
+
+    def test_ranging_regime_still_fires_on_a_deep_enough_extreme(self):
+        row = _row(
+            close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=20, mtf_trend="bullish",
+            adx=10,
+        )
+        cfg = _cfg(REGIME_ADAPTIVE_RSI_ENABLED=True)
+        assert be._check_entry(row, cfg) == "buy"
 
 
 class TestOpenPosition:

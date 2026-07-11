@@ -15,13 +15,20 @@ at the time, how would that choice have performed on data you hadn't seen
 yet" — repeated across multiple rolling folds.
 
 Only the *threshold* parameters are swept (RSI_OVERSOLD/OVERBOUGHT kept
-symmetric around 50, BOLLINGER_STD_DEV, ATR_SL_MULTIPLIER, ATR_TP_MULTIPLIER)
+symmetric around 50, BOLLINGER_STD_DEV, ATR_SL_MULTIPLIER, RISK_REWARD_RATIO)
 — not period lengths (RSI_PERIOD, BOLLINGER_PERIOD, ATR_PERIOD,
 TREND_FILTER_EMA_PERIOD stay fixed at config.py's values). BOLLINGER_STD_DEV
 is the only swept parameter that feeds indicator computation itself (it
 changes the band width), so indicators are computed once per distinct
 std-dev value and reused across every other combo that shares it, rather
 than recomputed per combo.
+
+RISK_REWARD_RATIO replaced the old ATR_TP_MULTIPLIER (see risk_management.
+calculate_trade_levels): sweeping the ratio directly instead of an
+independent TP multiplier means every (SL, RR) cell explores a genuinely
+distinct risk:reward shape, instead of the old grid's redundancy (e.g. old
+SL=1.0/TP=3.0 and SL=1.5/TP=4.5 both happened to be the same 3R ratio at
+different absolute distances).
 """
 
 import itertools
@@ -40,7 +47,7 @@ DEFAULT_GRID = {
     "RSI_OVERSOLD": [25, 30, 35],
     "BOLLINGER_STD_DEV": [1.5, 2.0, 2.5],
     "ATR_SL_MULTIPLIER": [1.0, 1.5, 2.0],
-    "ATR_TP_MULTIPLIER": [3.0, 4.5, 6.0],
+    "RISK_REWARD_RATIO": [2.0, 3.0, 4.0],
 }
 
 
@@ -150,7 +157,7 @@ def walk_forward(
                     "RSI_OVERBOUGHT": best_cfg.RSI_OVERBOUGHT,
                     "BOLLINGER_STD_DEV": best_cfg.BOLLINGER_STD_DEV,
                     "ATR_SL_MULTIPLIER": best_cfg.ATR_SL_MULTIPLIER,
-                    "ATR_TP_MULTIPLIER": best_cfg.ATR_TP_MULTIPLIER,
+                    "RISK_REWARD_RATIO": best_cfg.RISK_REWARD_RATIO,
                 },
                 "out_of_sample_stats": stats,
             }

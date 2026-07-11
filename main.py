@@ -130,7 +130,7 @@ def _attempt_entry(symbol, df, mtf_df, news_guard):
         signal.entry_price,
         signal.atr,
         config.ATR_SL_MULTIPLIER,
-        config.ATR_TP_MULTIPLIER,
+        config.RISK_REWARD_RATIO,
     )
 
     account = broker.get_account_snapshot()

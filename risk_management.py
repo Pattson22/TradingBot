@@ -53,13 +53,19 @@ def calculate_stop_distance(atr_value, sl_multiplier):
     return atr_value * sl_multiplier
 
 
-def calculate_trade_levels(direction, entry_price, atr_value, sl_multiplier, tp_multiplier):
+def calculate_trade_levels(direction, entry_price, atr_value, sl_multiplier, risk_reward_ratio):
     """
     Compute stop-loss and initial (safety-net) take-profit prices for a new
     trade, given its direction ("buy"/"sell"), entry price, and current ATR.
+
+    Take-profit is a STRICT risk:reward multiple of the stop distance
+    (tp_distance = stop_distance * risk_reward_ratio), not an independently
+    tuned ATR multiplier -- since both SL and TP derive from the same
+    stop_distance, the resulting R:R is exactly `risk_reward_ratio` by
+    construction, never just approximately so.
     """
     stop_distance = calculate_stop_distance(atr_value, sl_multiplier)
-    tp_distance = atr_value * tp_multiplier
+    tp_distance = stop_distance * risk_reward_ratio
 
     if direction == "buy":
         stop_loss = entry_price - stop_distance

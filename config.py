@@ -118,7 +118,12 @@ MTF_BARS_TO_FETCH = 300
 
 ATR_PERIOD = 14
 ATR_SL_MULTIPLIER = 1.5     # stop-loss distance = ATR * this
-ATR_TP_MULTIPLIER = 4.5     # initial safety-net TP distance = ATR * this (~3R)
+# Initial take-profit distance = stop_distance * this ratio -- a STRICT
+# risk:reward by construction (both SL and TP derive from the same
+# stop_distance), not an independently-tuned ATR multiplier. 3.0 preserves
+# the ratio of the old ATR_SL_MULTIPLIER=1.5 / ATR_TP_MULTIPLIER=4.5 pair
+# this replaced exactly (4.5/1.5 = 3.0).
+RISK_REWARD_RATIO = 3.0
 ATR_TRAIL_MULTIPLIER = 2.0  # trailing stop distance for the runner leg
 
 # ---------------------------------------------------------------------------
@@ -178,11 +183,33 @@ VOLATILITY_MIN_PERCENTILE = 0.20
 VOLATILITY_MAX_PERCENTILE = 0.80
 
 # ---------------------------------------------------------------------------
+# MARKET REGIME DETECTOR (ADX) -- market_regime.py
+# ---------------------------------------------------------------------------
+# ADX measures trend STRENGTH (not direction): above the threshold the
+# market is classified "trending" (a pullback entry doesn't need to reach a
+# full mean-reversion extreme before the trend likely resumes), at/below it
+# "ranging" (no reliable directional edge, so entries should require a
+# deeper, stricter RSI extreme to avoid chop). See market_regime.classify().
+#
+# Opt-in, default OFF: same don't-flip-on-without-backtest-evidence caveat
+# as the session/volatility filters below -- run backtest.py/optimize.py
+# with this enabled before trusting it live.
+ADX_PERIOD = 14
+ADX_TRENDING_THRESHOLD = 25
+REGIME_ADAPTIVE_RSI_ENABLED = False
+RSI_OVERSOLD_TRENDING = 40    # shallower pullback accepted -- trend likely resumes
+RSI_OVERBOUGHT_TRENDING = 60
+RSI_OVERSOLD_RANGING = 25     # deeper extreme required -- avoids chop with no edge
+RSI_OVERBOUGHT_RANGING = 75
+
+# ---------------------------------------------------------------------------
 # SPREAD FILTER
 # ---------------------------------------------------------------------------
 # Maximum acceptable spread per symbol, expressed in broker "points"
-# (MT5 points, not pips — for a 5-digit EURUSD, 1 pip = 10 points).
-# Tune these to each symbol's normal spread; widen only for a considered reason.
+# (MT5 points, not pips — for a 5-digit EURUSD, 1 pip = 10 points). This is
+# a hard ceiling/sanity bound (catches broker glitches and genuinely
+# abnormal spikes) -- tune to each symbol's normal spread; widen only for a
+# considered reason.
 MAX_SPREAD_POINTS = {
     "EURUSD": 20,   # ~2.0 pip cap
     "USDJPY": 20,
@@ -191,6 +218,16 @@ MAX_SPREAD_POINTS = {
     "USDCHF": 20,
 }
 DEFAULT_MAX_SPREAD_POINTS = 30  # fallback for symbols not listed above
+
+# Adaptive layer on top of the static cap above: once a symbol has at least
+# SPREAD_ROLLING_MIN_SAMPLES accepted readings, also block if the current
+# spread exceeds SPREAD_ROLLING_MULTIPLIER x that symbol's own recent
+# rolling-mean spread -- catches a spike to e.g. 2x-normal that's still
+# comfortably under the static cap. Rolling history lives in memory only
+# (spread_filter.py) and resets on every bot restart.
+SPREAD_ROLLING_WINDOW = 50
+SPREAD_ROLLING_MULTIPLIER = 1.5
+SPREAD_ROLLING_MIN_SAMPLES = 20
 
 # ---------------------------------------------------------------------------
 # ECONOMIC CALENDAR / NEWS FILTER (news_filter.py)

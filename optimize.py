@@ -59,7 +59,7 @@ def _print_report(symbol, start, end, in_sample_bars, out_sample_bars, folds, oo
         print(
             f"Fold {i}: {fold['split_time']:%Y-%m-%d} -> {fold['out_sample_end']:%Y-%m-%d} | "
             f"RSI {p['RSI_OVERSOLD']}/{p['RSI_OVERBOUGHT']} BB{p['BOLLINGER_STD_DEV']} "
-            f"SL x{p['ATR_SL_MULTIPLIER']} TP x{p['ATR_TP_MULTIPLIER']} -> "
+            f"SL x{p['ATR_SL_MULTIPLIER']} RR 1:{p['RISK_REWARD_RATIO']} -> "
             f"{s['num_trades']} trades, win rate {win_rate}, return {s['total_return_pct']:+.2f}%"
         )
 

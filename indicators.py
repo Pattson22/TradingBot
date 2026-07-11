@@ -68,6 +68,35 @@ def atr(df, period=14):
     return true_range.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
 
 
+def adx(df, period=14):
+    """
+    Wilder's Average Directional Index -- measures trend STRENGTH, not
+    direction, used by market_regime.py to classify Trending
+    (ADX > config.ADX_TRENDING_THRESHOLD) vs Ranging markets. Needs roughly
+    2x `period` bars to fully warm up: the +DI/-DI smoothing needs `period`
+    bars, then ADX itself is a second Wilder smoothing of DX on top of that
+    -- a real property of ADX, not a bug.
+    """
+    high, low = df["high"], df["low"]
+    up_move = high.diff()
+    down_move = -low.diff()
+
+    plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+    minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+
+    smoothed_tr = atr(df, period)
+    smoothed_plus_dm = plus_dm.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    smoothed_minus_dm = minus_dm.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+
+    plus_di = 100 * smoothed_plus_dm / smoothed_tr
+    minus_di = 100 * smoothed_minus_dm / smoothed_tr
+
+    di_sum = (plus_di + minus_di).replace(0, np.nan)
+    dx = 100 * (plus_di - minus_di).abs() / di_sum
+
+    return dx.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+
+
 def atr_percentile_rank(atr_series, lookback=100):
     """
     Rolling percentile rank (0-1) of each bar's ATR value within its own
@@ -95,4 +124,5 @@ def compute_all(df, config):
     )
     out["atr"] = atr(out, config.ATR_PERIOD)
     out["atr_percentile"] = atr_percentile_rank(out["atr"], config.VOLATILITY_PERCENTILE_LOOKBACK)
+    out["adx"] = adx(out, config.ADX_PERIOD)
     return out

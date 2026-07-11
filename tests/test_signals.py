@@ -21,6 +21,15 @@ def _enriched_row(**overrides):
     return pd.DataFrame([base], index=[pd.Timestamp("2026-01-01", tz="UTC")])
 
 
+def _enable_regime_filter(monkeypatch):
+    monkeypatch.setattr(signals.config, "REGIME_ADAPTIVE_RSI_ENABLED", True)
+    monkeypatch.setattr(signals.config, "ADX_TRENDING_THRESHOLD", 25)
+    monkeypatch.setattr(signals.config, "RSI_OVERSOLD_TRENDING", 40)
+    monkeypatch.setattr(signals.config, "RSI_OVERBOUGHT_TRENDING", 60)
+    monkeypatch.setattr(signals.config, "RSI_OVERSOLD_RANGING", 25)
+    monkeypatch.setattr(signals.config, "RSI_OVERBOUGHT_RANGING", 75)
+
+
 def _mtf_df(closes):
     return pd.DataFrame(
         {"close": closes},
@@ -113,3 +122,41 @@ class TestGenerate:
         monkeypatch.setattr(signals, "compute_all", lambda df, cfg: _enriched_row(atr_percentile=0.5))
         result = signals.generate(_DUMMY_H1_DF, _BULLISH_MTF)
         assert result is not None
+
+
+class TestRegimeAdaptiveRsi:
+    def test_disabled_by_default_ignores_adx_entirely(self, monkeypatch):
+        # No "adx" field on the row at all -- must not be touched when disabled.
+        monkeypatch.setattr(signals, "compute_all", lambda df, cfg: _enriched_row(rsi=25))
+        result = signals.generate(_DUMMY_H1_DF, _BULLISH_MTF)
+        assert result is not None
+
+    def test_blocks_entry_when_adx_not_warmed_up(self, monkeypatch):
+        _enable_regime_filter(monkeypatch)
+        monkeypatch.setattr(signals, "compute_all", lambda df, cfg: _enriched_row(rsi=25, adx=float("nan")))
+        result = signals.generate(_DUMMY_H1_DF, _BULLISH_MTF)
+        assert result is None
+
+    def test_trending_regime_allows_shallower_rsi_pullback(self, monkeypatch):
+        _enable_regime_filter(monkeypatch)
+        # rsi=38: below TRENDING's oversold (40) but NOT below RANGING's (25) --
+        # only fires because ADX classifies this bar as trending.
+        monkeypatch.setattr(signals, "compute_all", lambda df, cfg: _enriched_row(rsi=38, adx=30))
+        result = signals.generate(_DUMMY_H1_DF, _BULLISH_MTF)
+        assert result is not None
+        assert "regime=trending" in result.reason
+
+    def test_ranging_regime_requires_deeper_rsi_extreme(self, monkeypatch):
+        _enable_regime_filter(monkeypatch)
+        # rsi=28 would satisfy the plain default RSI_OVERSOLD=30, but RANGING's
+        # stricter threshold (25) must block it to avoid trading chop.
+        monkeypatch.setattr(signals, "compute_all", lambda df, cfg: _enriched_row(rsi=28, adx=10))
+        result = signals.generate(_DUMMY_H1_DF, _BULLISH_MTF)
+        assert result is None
+
+    def test_ranging_regime_still_fires_on_a_deep_enough_extreme(self, monkeypatch):
+        _enable_regime_filter(monkeypatch)
+        monkeypatch.setattr(signals, "compute_all", lambda df, cfg: _enriched_row(rsi=20, adx=10))
+        result = signals.generate(_DUMMY_H1_DF, _BULLISH_MTF)
+        assert result is not None
+        assert "regime=ranging" in result.reason
