@@ -22,10 +22,13 @@ data — read before trusting the numbers):
    indicator here (SMA, Wilder EMA/RSI/ATR, rolling std) is causal — each
    row's value depends only on that row and earlier rows, identical to
    calling it incrementally bar-by-bar, just far faster.
-2. Entries fill at the signal bar's own close (matching live: the bot acts
-   on the last CLOSED candle and sends the order immediately after, so the
-   real fill price is ~= that close, modulo tiny live slippage which isn't
-   modeled here).
+2. Entries fill at the signal bar's own close, adjusted for that bar's
+   actual historical spread (MT5's per-bar `spread` field, in broker
+   points): buys fill at close + spread, sells at close - spread. This
+   charges one full spread-width as a round-trip transaction cost at
+   entry, same as a real fill crossing the bid/ask -- not a full
+   tick-level bid/ask replay (only one side's OHLC is available), and
+   tiny live order-send slippage still isn't modeled.
 3. Exit-tier management (BE / partial-TP / trailing) only gets bar-level
    granularity (checked once per bar using that bar's High/Low), whereas the
    live bot polls every `POLL_INTERVAL_SECONDS` using real-time ticks. A
@@ -39,8 +42,17 @@ data — read before trusting the numbers):
    previous bar, then tier updates (if the position survives) apply for the
    *next* bar's check — avoiding a same-bar "retroactively saved by its own
    trailing update" lookahead.
-6. No slippage, spread, or partial-fill modeling on entries/exits.
-7. Multi-timeframe confirmation (mtf_trend.py) is aligned with an as-of
+6. Exit fills (SL/TP) are NOT further spread-adjusted: the SL/TP price
+   levels are already derived from the spread-adjusted entry price and the
+   ATR stop distance, so charging spread again at exit would double-count
+   the same cost. No slippage or partial-fill modeling on entries/exits.
+7. Entries are additionally gated by the same spread filter the live bot
+   checks before signal generation (spread_filter.is_spread_acceptable,
+   main.py._attempt_entry) -- if a bar's actual historical spread exceeds
+   cfg.MAX_SPREAD_POINTS (or cfg.DEFAULT_MAX_SPREAD_POINTS for a symbol not
+   listed there), no entry is considered on that bar, checked before the
+   session/volatility/trend/BB/RSI rules below, same order as live.
+8. Multi-timeframe confirmation (mtf_trend.py) is aligned with an as-of
    backward join shifted by the higher timeframe's own bar duration, so a
    not-yet-closed higher-timeframe bar never leaks into an earlier H1 bar's
    signal check — see mtf_trend.align_series's docstring. Like the H1
@@ -122,10 +134,13 @@ def _bar_hour_utc(row):
     return timestamp.hour
 
 
-def _check_entry(row, cfg):
+def _check_entry(row, cfg, max_spread_points=float("inf")):
     close = row.close
     bullish_trend = close > row.ema_trend and row.mtf_trend == "bullish"
     bearish_trend = close < row.ema_trend and row.mtf_trend == "bearish"
+
+    if row.spread > max_spread_points:
+        return None
 
     if cfg.SESSION_FILTER_ENABLED and _bar_hour_utc(row) not in cfg.SESSION_ALLOWED_HOURS_UTC:
         return None
@@ -143,7 +158,8 @@ def _check_entry(row, cfg):
 
 
 def _open_position(direction, row, time, symbol_info, balance, cfg):
-    entry_price = row.close
+    spread_price = row.spread * symbol_info.trade_tick_size
+    entry_price = row.close + spread_price if direction == "buy" else row.close - spread_price
     atr_value = row.atr
 
     levels = risk_management.calculate_trade_levels(
@@ -292,6 +308,8 @@ def run_backtest_on_enriched(enriched, symbol_info, initial_balance=10_000.0, cf
     EMA200) at the start of each fold, which doesn't reflect a bot that's
     actually been running continuously.
     """
+    max_spread_points = cfg.MAX_SPREAD_POINTS.get(symbol_info.name, cfg.DEFAULT_MAX_SPREAD_POINTS)
+
     balance = initial_balance
     position = None
     trades = []
@@ -307,7 +325,7 @@ def run_backtest_on_enriched(enriched, symbol_info, initial_balance=10_000.0, cf
                 trades.append(closed_trade)
                 position = None
         elif not _warmup_incomplete(row):
-            signal = _check_entry(row, cfg)
+            signal = _check_entry(row, cfg, max_spread_points)
             if signal is not None:
                 position = _open_position(signal, row, time, symbol_info, balance, cfg)
 

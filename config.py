@@ -50,7 +50,39 @@ DRY_RUN = os.environ.get("DRY_RUN", "true").lower() in ("1", "true", "yes")
 # added, though note the fixed-default number (70% win rate, zero losing
 # trades) is a small, suspiciously clean sample; the walk-forward result
 # is the more trustworthy signal here.
-SYMBOLS = ["EURUSD", "AUDUSD"]
+# NZDUSD/USDCHF added 2026-07-10 (later same day), motivated by wanting more
+# trade frequency: dropping MTF confirmation and switching entries to M30
+# were both tried first and rejected (M30 in particular collapsed edge
+# quality -- AUDUSD fixed-default flipped to a losing PF 0.97, EURUSD
+# walk-forward went net-negative at -2.87% -- see git history / memory
+# around this date for the full comparison). Adding independent pairs
+# instead of degrading existing pairs' signal quality tested better.
+# USDCAD was also tried as a candidate in the same batch and REJECTED:
+# fixed-default -0.30%/12 trades (PF 0.75), walk-forward barely positive
+# at +0.17%/17 trades even with adaptive per-fold tuning -- same losing
+# pattern as USDJPY/GBPUSD.
+# NZDUSD/USDCHF both initially looked positive both ways -- but that first
+# pass had NO spread cost or spread-filter modeling in backtest_engine.py
+# at all (a pre-existing gap, since fixed 2026-07-10 same day). Once added,
+# NZDUSD's numbers moved a lot (fixed-default +1.12%/16 trades -> +0.84%/14
+# trades; walk-forward +4.19%/36 OOS trades, the BEST of any pair tested,
+# collapsed to +1.10%/23 trades, the WORST of the four) -- its live spread
+# has a fat right tail (p90 = 45 points historically, 2-3x AUDUSD/USDCHF),
+# so a meaningful slice of its backtested trades either paid real spread
+# cost or would have been blocked outright by the live spread filter
+# (config.MAX_SPREAD_POINTS). NZDUSD REMOVED 2026-07-10 on this evidence --
+# its edge was mostly a transaction-cost illusion, not a real advantage
+# over AUDUSD (now nearly identical: +1.00% walk-forward).
+# USDCHF held up much better under the same honest re-test (fixed-default
+# +0.98%/11 trades unchanged; walk-forward +2.56%/37 -> +2.11%/33 trades,
+# a much smaller haircut since its spread stays consistently tight) --
+# kept, and is now the strongest walk-forward performer of the four.
+# Multiple-comparisons caveat: this is the 6th-7th pair tested against the
+# same fixed 18-month window (see README's "Known limitations" section) --
+# some fraction of "looks good" here is plausibly noise, and USDCHF's
+# fixed-default sample (11 trades) is still thin. Not yet validated on a
+# second, non-overlapping window.
+SYMBOLS = ["EURUSD", "AUDUSD", "USDCHF"]
 
 # Working timeframe for signal generation. Uses MetaTrader5 timeframe
 # constants (mt5.TIMEFRAME_H1 etc.) — imported where needed to avoid a
@@ -95,16 +127,23 @@ ATR_TRAIL_MULTIPLIER = 2.0  # trailing stop distance for the runner leg
 RISK_PER_TRADE = 0.0025  # 0.25% of current account balance risked per trade
 
 # Caps combined worst-case risk across ALL open positions (any symbol), not
-# just the per-trade cap above -- otherwise two symbols signaling in the
-# same cycle (e.g. EURUSD + AUDUSD, both USD-quoted and prone to moving
-# together on a USD-driven day) could each independently pass the
-# per-trade check while stacking correlated risk. A position's contribution
-# shrinks to zero once its stop has moved to break-even or better (see
+# just the per-trade cap above -- otherwise multiple symbols signaling in
+# the same cycle (e.g. USD-quoted pairs prone to moving together on a
+# USD-driven day) could each independently pass the per-trade check while
+# stacking correlated risk. A position's contribution shrinks to zero once
+# its stop has moved to break-even or better (see
 # risk_management.calculate_position_risk), so mature/de-risked winners
 # free up budget for new entries automatically rather than counting
 # against this cap forever.
-MAX_PORTFOLIO_RISK_PCT = 0.005  # 0.5% = 2x RISK_PER_TRADE, room for both
-                                 # current symbols at full risk simultaneously
+# NOTE: with 3 symbols now in SYMBOLS (EURUSD/AUDUSD/USDCHF, as of
+# 2026-07-10 -- NZDUSD was briefly a 4th, see SYMBOLS' comment above), this
+# cap only ever allows 2 of them at full initial risk open simultaneously
+# (0.5% / 0.25% per trade) -- deliberately left unchanged rather than
+# widened when the symbol count grew, so adding more pairs increases trade
+# *frequency* without increasing worst-case concurrent portfolio risk.
+# Revisit if that tightness turns out to block entries often enough to
+# matter in practice.
+MAX_PORTFOLIO_RISK_PCT = 0.005  # 0.5% = 2x RISK_PER_TRADE
 
 # Multi-tier exit management, expressed in multiples of initial risk (R)
 BREAKEVEN_TRIGGER_R = 1.0   # move SL to entry once price reaches +1R
@@ -148,6 +187,8 @@ MAX_SPREAD_POINTS = {
     "EURUSD": 20,   # ~2.0 pip cap
     "USDJPY": 20,
     "AUDUSD": 20,
+    "NZDUSD": 20,
+    "USDCHF": 20,
 }
 DEFAULT_MAX_SPREAD_POINTS = 30  # fallback for symbols not listed above
 

@@ -31,11 +31,14 @@ def _fake_config():
         VOLATILITY_PERCENTILE_LOOKBACK=3,
         VOLATILITY_MIN_PERCENTILE=0.20,
         VOLATILITY_MAX_PERCENTILE=0.80,
+        MAX_SPREAD_POINTS={},
+        DEFAULT_MAX_SPREAD_POINTS=30,
     )
 
 
 def _symbol_info():
     return types.SimpleNamespace(
+        name="EURUSD",
         trade_tick_size=0.00001,
         trade_tick_value=1.0,
         volume_step=0.01,
@@ -129,6 +132,7 @@ class TestWalkForwardSmoke:
                 "high": [c + 0.0001 for c in closes],
                 "low": [c - 0.0001 for c in closes],
                 "close": closes,
+                "spread": [10] * n,
             },
             index=pd.date_range("2026-01-01", periods=n, freq="h", tz="UTC"),
             dtype=float,

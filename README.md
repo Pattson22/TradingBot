@@ -1,16 +1,23 @@
 # Conservative Forex Trading Bot
 
-A rule-based, low-risk-per-trade Forex bot for EUR/USD and AUD/USD, built on
-MetaTrader 5. Philosophy: capital preservation first, compounding via small,
-consistent gains — no Martingale, no grid trading, no averaging down.
+A rule-based, low-risk-per-trade Forex bot for EUR/USD, AUD/USD, and USD/CHF,
+built on MetaTrader 5. Philosophy: capital preservation first, compounding
+via small, consistent gains — no Martingale, no grid trading, no averaging
+down.
 
-USD/JPY and GBP/USD were both evaluated as candidates and rejected:
-`backtest.py`/`optimize.py` showed both structurally losing money with this
-strategy across the same 18-month history that EUR/USD and AUD/USD were
-profitable on (fixed-default and walk-forward, with and without MTF
-confirmation). See git history around the "Drop USDJPY" and "Add AUDUSD,
-drop GBPUSD candidate" commits for the full evidence if you're evaluating
-another pair.
+USD/JPY, GBP/USD, USD/CAD, and NZD/USD were all evaluated as candidates and
+rejected: `backtest.py`/`optimize.py` showed each structurally losing money
+or losing its edge to realistic transaction costs, across the same 18-month
+history that EUR/USD, AUD/USD, and USD/CHF held up on (fixed-default and
+walk-forward, with and without MTF confirmation). NZD/USD in particular
+looked like the strongest candidate of all before spread cost/filter
+modeling was added to `backtest_engine.py` — its edge mostly evaporated once
+that honest accounting was in place (see "Known limitations" below and git
+history around the "Add NZDUSD/USDCHF" and "Remove NZDUSD" commits for the
+full evidence). See git history around the "Drop USDJPY", "Add AUDUSD, drop
+GBPUSD candidate", "Add NZDUSD/USDCHF, drop USDCAD candidate" commits if
+you're evaluating another pair. Note this is now the 6th-7th pair tested
+against the same fixed window — multiple-comparisons risk is real.
 
 ## Current state (as of 2026-07-10)
 
@@ -32,6 +39,27 @@ another pair.
   session filter, but the volatility filter's promising-looking numbers
   were on too few trades (3) to trust. Don't flip either on as a live
   default without more validation first.
+- NZDUSD and USDCHF added 2026-07-10 specifically to raise trade frequency
+  (roughly one trade every 5-7 weeks per symbol was deemed too infrequent).
+  Two other levers were tried first and rejected: dropping MTF confirmation
+  (only ~10% more trades, at a real quality cost) and switching entries to
+  M30 (collapsed edge quality — AUDUSD fixed-default flipped to a losing
+  system, EURUSD walk-forward went net-negative). Adding independent,
+  separately-validated pairs tested far better than degrading existing
+  pairs' signal quality. USDCAD was evaluated in the same batch and
+  rejected (structurally losing, same pattern as USDJPY/GBPUSD).
+- `backtest_engine.py` didn't model spread cost or the live spread filter
+  at all until 2026-07-10 (later the same day) — added after NZDUSD's
+  live spread turned out to have a fat right tail (p90 = 45 points
+  historically) that the zero-cost backtest couldn't see. Re-testing with
+  both modeled honestly showed NZDUSD's walk-forward return, previously
+  the best of any pair tested (+4.19%), was mostly a transaction-cost
+  illusion — it collapsed to +1.10% (worst of the four, indistinguishable
+  from AUDUSD). **NZDUSD was removed** on this evidence. USDCHF held up
+  much better (+2.56%→+2.11%, still the strongest walk-forward performer)
+  and was kept — its spread stays consistently tight. Current live symbols:
+  EURUSD, AUDUSD, USDCHF. The live bot needs a restart to pick up any
+  symbol-list change, same caveat as the MTF filter before it.
 
 ## How it works
 
@@ -219,7 +247,11 @@ are cached to `backtest_data/` so repeat runs over the same window don't
 re-fetch. Output and logs go to `logs/backtest.log`, kept separate from the
 live bot's log. See `backtest_engine.py`'s module docstring for the OHLC-bar
 approximations this implies (no tick-level intrabar precision, no slippage
-modeling) — read it before trusting the exact numbers.
+modeling) — read it before trusting the exact numbers. Entries are charged
+real historical spread cost (MT5's per-bar `spread` field) and are blocked
+on bars where that spread exceeds `config.MAX_SPREAD_POINTS`, mirroring the
+live spread filter — added 2026-07-10 after it turned out to matter a lot
+for one candidate pair (NZDUSD, see "Known limitations" below).
 
 ### Walk-forward parameter optimization
 
@@ -272,5 +304,19 @@ instead, not unit tests.
   run so far has been quiet. Worth watching closely the first time it does.
 - Before adding further symbols, be aware of multiple-comparisons risk: the
   more pairs get backtested, the more likely one looks good by chance alone
-  on any fixed historical window. AUDUSD's own supporting sample is still
-  small (10-14 trades depending on test).
+  on any fixed historical window — 6-7 pairs have now been tested against
+  the same fixed 2025-01-01 to 2026-07-01 window. AUDUSD's and USDCHF's own
+  supporting samples are still small (10-11 trades depending on test/pair)
+  and neither has been validated on a second, non-overlapping window yet.
+- `backtest_engine.py` didn't model spread cost or the live spread filter
+  at all until 2026-07-10, and this bit a real candidate: NZDUSD initially
+  looked like the strongest of 4 pairs added that day (walk-forward
+  +4.19%, best of any pair tested), but its live spread has a fat right
+  tail (p90 = 45 points historically, vs. ~3-12 for EURUSD/AUDUSD/USDCHF)
+  that a zero-cost backtest simply couldn't see. Once spread cost and the
+  spread filter were both modeled, NZDUSD's return collapsed to +1.10%
+  (worst of the four) and it was removed from `config.SYMBOLS`. Lesson for
+  future candidates: a pair's backtested edge isn't trustworthy until
+  checked against its own actual spread distribution, not just its price
+  action — a pair with a wide/fat-tailed spread can look good purely
+  because the backtest wasn't charging for it.

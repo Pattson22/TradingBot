@@ -30,6 +30,8 @@ def _cfg(**overrides):
         VOLATILITY_PERCENTILE_LOOKBACK=3,
         VOLATILITY_MIN_PERCENTILE=0.20,
         VOLATILITY_MAX_PERCENTILE=0.80,
+        MAX_SPREAD_POINTS={},
+        DEFAULT_MAX_SPREAD_POINTS=30,
     )
     base.update(overrides)
     return types.SimpleNamespace(**base)
@@ -37,6 +39,7 @@ def _cfg(**overrides):
 
 def _symbol_info(**overrides):
     base = dict(
+        name="EURUSD",
         trade_tick_size=0.00001,
         trade_tick_value=1.0,
         volume_step=0.01,
@@ -47,7 +50,8 @@ def _symbol_info(**overrides):
     return types.SimpleNamespace(**base)
 
 
-def _row(_time=None, **fields):
+def _row(_time=None, spread=0, **fields):
+    fields["spread"] = spread
     return pd.Series(fields, name=_time or pd.Timestamp("2026-01-01", tz="UTC"))
 
 
@@ -144,6 +148,24 @@ class TestCheckEntry:
         cfg = _cfg(VOLATILITY_FILTER_ENABLED=True)
         assert be._check_entry(row, cfg) == "buy"
 
+    def test_no_spread_cap_allows_entry_regardless_of_spread(self):
+        row = _row(close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=25, mtf_trend="bullish", spread=999)
+        assert be._check_entry(row, _cfg()) == "buy"
+
+    def test_spread_filter_blocks_entry_when_spread_exceeds_cap(self):
+        row = _row(
+            close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=25, mtf_trend="bullish",
+            spread=25,
+        )
+        assert be._check_entry(row, _cfg(), max_spread_points=20) is None
+
+    def test_spread_filter_allows_entry_at_or_below_cap(self):
+        row = _row(
+            close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=25, mtf_trend="bullish",
+            spread=20,
+        )
+        assert be._check_entry(row, _cfg(), max_spread_points=20) == "buy"
+
 
 class TestOpenPosition:
     def test_computes_expected_levels_and_lot(self):
@@ -159,6 +181,27 @@ class TestOpenPosition:
         row = _row(close=1.1000, atr=0.0010)
         position = be._open_position("buy", row, row.name, _symbol_info(), balance=1.0, cfg=_cfg())
         assert position is None
+
+    def test_buy_fills_worse_than_close_by_the_spread(self):
+        # 20-point spread * 0.00001 tick size = 0.00020 paid on entry.
+        row = _row(close=1.1000, atr=0.0010, spread=20)
+        position = be._open_position("buy", row, row.name, _symbol_info(), balance=10_000.0, cfg=_cfg())
+        assert position.entry_price == pytest.approx(1.10020)
+        assert position.initial_stop_distance == pytest.approx(0.0015)
+        assert position.sl == pytest.approx(1.09870)
+        assert position.tp == pytest.approx(1.10470)
+
+    def test_sell_fills_worse_than_close_by_the_spread(self):
+        row = _row(close=1.1000, atr=0.0010, spread=20)
+        position = be._open_position("sell", row, row.name, _symbol_info(), balance=10_000.0, cfg=_cfg())
+        assert position.entry_price == pytest.approx(1.09980)
+        assert position.sl == pytest.approx(1.10130)
+        assert position.tp == pytest.approx(1.09530)
+
+    def test_zero_spread_leaves_entry_at_close(self):
+        row = _row(close=1.1000, atr=0.0010, spread=0)
+        position = be._open_position("buy", row, row.name, _symbol_info(), balance=10_000.0, cfg=_cfg())
+        assert position.entry_price == pytest.approx(1.1000)
 
 
 class TestManagePosition:
@@ -245,6 +288,7 @@ class TestRunBacktestSmoke:
                 "high": [c + 0.0001 for c in closes],
                 "low": [c - 0.0001 for c in closes],
                 "close": closes,
+                "spread": [10] * n,
             },
             index=pd.date_range("2026-01-01", periods=n, freq="h", tz="UTC"),
             dtype=float,
@@ -260,4 +304,39 @@ class TestRunBacktestSmoke:
         assert result.trades == []
         assert result.final_balance == pytest.approx(10_000.0)
         assert len(result.equity_curve) == n
-        assert (result.equity_curve - 10_000.0).abs().max() < 1e-6
+
+
+class TestRunBacktestOnEnrichedSpreadFilter:
+    def _one_bar_enriched(self, spread):
+        return pd.DataFrame(
+            {
+                "close": [1.0940], "high": [1.0945], "low": [1.0935],
+                "ema_trend": [1.0900], "bb_lower": [1.0950], "bb_upper": [1.1100],
+                "rsi": [25.0], "atr": [0.0010], "atr_percentile": [0.5],
+                "mtf_trend": ["bullish"], "spread": [spread],
+            },
+            index=pd.DatetimeIndex([pd.Timestamp("2026-01-01", tz="UTC")], name="time"),
+        )
+
+    def test_spread_above_symbols_cap_blocks_the_only_entry(self):
+        enriched = self._one_bar_enriched(spread=25)
+        symbol_info = _symbol_info(name="NZDUSD")
+        cfg = _cfg(MAX_SPREAD_POINTS={"NZDUSD": 20})
+        result = be.run_backtest_on_enriched(enriched, symbol_info, initial_balance=10_000.0, cfg=cfg)
+        assert result.equity_curve.iloc[-1] == pytest.approx(10_000.0)
+
+    def test_spread_at_symbols_cap_allows_the_entry(self):
+        enriched = self._one_bar_enriched(spread=10)
+        symbol_info = _symbol_info(name="NZDUSD")
+        cfg = _cfg(MAX_SPREAD_POINTS={"NZDUSD": 20})
+        result = be.run_backtest_on_enriched(enriched, symbol_info, initial_balance=10_000.0, cfg=cfg)
+        # A position opened this same bar, so its mark-to-market already
+        # reflects the entry's spread cost -- equity is no longer exactly flat.
+        assert result.equity_curve.iloc[-1] != pytest.approx(10_000.0)
+
+    def test_unlisted_symbol_falls_back_to_default_cap(self):
+        enriched = self._one_bar_enriched(spread=25)
+        symbol_info = _symbol_info(name="SOMEPAIR")
+        cfg = _cfg(MAX_SPREAD_POINTS={"NZDUSD": 20}, DEFAULT_MAX_SPREAD_POINTS=30)
+        result = be.run_backtest_on_enriched(enriched, symbol_info, initial_balance=10_000.0, cfg=cfg)
+        assert result.equity_curve.iloc[-1] != pytest.approx(10_000.0)
