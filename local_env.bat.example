@@ -1,0 +1,9 @@
+@echo off
+REM Copy this file to local_env.bat (gitignored) and fill in your real key.
+REM start_bot.bat sources local_env.bat automatically if it exists.
+
+REM jblanked.com Calendar API key -- get one from your jblanked.com profile.
+REM See config.py's NEWS_CALENDAR_URL comment for why the WEEK endpoint,
+REM impact=High, and offset=3 matter.
+set "NEWS_CALENDAR_URL=https://www.jblanked.com/news/api/mql5/calendar/week/?impact=High&offset=3"
+set "NEWS_CALENDAR_API_KEY=your-api-key-here"

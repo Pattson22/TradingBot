@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 logs/
 .env
+local_env.bat
 venv/
 .venv/
 data/
