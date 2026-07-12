@@ -66,7 +66,7 @@ def _print_report(symbol, start, end, folds, adx_summary, ml_summary):
     for i, fold in enumerate(folds, 1):
         print(f"Fold {i}: {fold['split_time']:%Y-%m-%d} -> {fold['out_sample_end']:%Y-%m-%d}")
         print(f"    ADX rule: {_fmt_stats(fold['adx_stats'])}")
-        print(f"    ML model: {_fmt_stats(fold['ml_stats'])} (label_threshold={fold['label_threshold']:.4f})")
+        print(f"    ML model: {_fmt_stats(fold['ml_stats'])} (trained on {fold['n_training_samples']} labeled setup bars)")
 
     print("-" * 78)
     print(f"ADX rule overall: {_fmt_stats(adx_summary)}")

@@ -66,8 +66,8 @@ def compare_regime_methods(
     Walk-forward comparison of the ADX rule vs the ML classifier for
     regime-adaptive RSI thresholds. Returns (folds, adx_summary, ml_summary):
       - folds: list of per-fold dicts (split_time, out_sample_end,
-        label_threshold, adx_stats, ml_stats -- each *_stats is that fold's
-        own out-of-sample backtest_metrics.summarize() result).
+        n_training_samples, adx_stats, ml_stats -- each *_stats is that
+        fold's own out-of-sample backtest_metrics.summarize() result).
       - adx_summary / ml_summary: pooled summarize() across every fold's
         out-of-sample trades and equity, with balance compounded
         fold-to-fold independently per method -- the headline "which one
@@ -94,7 +94,10 @@ def compare_regime_methods(
         in_sample = enriched.iloc[in_start:split]
         out_sample = enriched.iloc[split:out_end].copy()
 
-        model, threshold = ml_regime_classifier.train(in_sample, forward_bars=forward_bars)
+        model, n_training_samples = ml_regime_classifier.train(
+            in_sample, forward_bars=forward_bars,
+            sl_multiplier=cfg.ATR_SL_MULTIPLIER, risk_reward_ratio=cfg.RISK_REWARD_RATIO,
+        )
         out_sample["ml_regime"] = ml_regime_classifier.predict(model, out_sample)
 
         adx_result = run_backtest_on_enriched(out_sample, symbol_info, initial_balance=adx_balance, cfg=adx_cfg)
@@ -104,7 +107,7 @@ def compare_regime_methods(
             {
                 "split_time": enriched.index[split],
                 "out_sample_end": enriched.index[out_end - 1],
-                "label_threshold": threshold,
+                "n_training_samples": n_training_samples,
                 "adx_stats": summarize(adx_result.trades, adx_result.equity_curve, adx_balance),
                 "ml_stats": summarize(ml_result.trades, ml_result.equity_curve, ml_balance),
             }
