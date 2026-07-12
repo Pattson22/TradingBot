@@ -202,6 +202,14 @@ RSI_OVERBOUGHT_TRENDING = 60
 RSI_OVERSOLD_RANGING = 25     # deeper extreme required -- avoids chop with no edge
 RSI_OVERBOUGHT_RANGING = 75
 
+# "adx" (default): the fixed ADX_TRENDING_THRESHOLD rule above via
+# market_regime.classify(). "ml": a learned classifier (ml_regime_classifier.py,
+# see regime_classifier_optimize.py) -- backtest-only for now, reads a
+# precomputed row.ml_regime column rather than computing anything live.
+# Not wired into the live bot (signals.py) until it's shown to actually beat
+# the ADX rule out-of-sample.
+REGIME_CLASSIFIER_METHOD = "adx"
+
 # ---------------------------------------------------------------------------
 # SPREAD FILTER
 # ---------------------------------------------------------------------------

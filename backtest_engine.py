@@ -158,13 +158,23 @@ def _check_entry(row, cfg, max_spread_points=float("inf")):
 
     rsi_oversold, rsi_overbought = cfg.RSI_OVERSOLD, cfg.RSI_OVERBOUGHT
     if cfg.REGIME_ADAPTIVE_RSI_ENABLED:
-        regime = market_regime.classify(row.adx, cfg.ADX_TRENDING_THRESHOLD)
-        if regime is None:
-            return None
+        if getattr(cfg, "REGIME_CLASSIFIER_METHOD", "adx") == "ml":
+            # Precomputed by regime_classifier_optimize.py's walk-forward
+            # harness (out-of-sample ML predictions attached as a column)
+            # -- may be None/NaN for warm-up rows, same as row.mtf_trend.
+            regime = row.ml_regime
+        else:
+            regime = market_regime.classify(row.adx, cfg.ADX_TRENDING_THRESHOLD)
+
+        # Equality checks (not an isna/None check) so a None OR NaN regime
+        # -- whichever an object-dtype column happens to produce -- falls
+        # through to "no classification available" uniformly.
         if regime == market_regime.TRENDING:
             rsi_oversold, rsi_overbought = cfg.RSI_OVERSOLD_TRENDING, cfg.RSI_OVERBOUGHT_TRENDING
-        else:
+        elif regime == market_regime.RANGING:
             rsi_oversold, rsi_overbought = cfg.RSI_OVERSOLD_RANGING, cfg.RSI_OVERBOUGHT_RANGING
+        else:
+            return None
 
     if bullish_trend and close <= row.bb_lower and row.rsi < rsi_oversold:
         return "buy"

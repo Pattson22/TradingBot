@@ -216,6 +216,48 @@ class TestCheckEntryRegimeAdaptiveRsi:
         assert be._check_entry(row, cfg) == "buy"
 
 
+class TestCheckEntryMlRegimeMethod:
+    """REGIME_CLASSIFIER_METHOD='ml' reads a precomputed row.ml_regime
+    column instead of computing market_regime.classify(row.adx, ...) --
+    row.adx is irrelevant/absent in every test here, proving the ADX path
+    isn't touched under this method."""
+
+    def test_ml_trending_allows_shallower_rsi_pullback(self):
+        row = _row(
+            close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=38, mtf_trend="bullish",
+            ml_regime="trending",
+        )
+        cfg = _cfg(REGIME_ADAPTIVE_RSI_ENABLED=True, REGIME_CLASSIFIER_METHOD="ml")
+        assert be._check_entry(row, cfg) == "buy"
+
+    def test_ml_ranging_requires_deeper_rsi_extreme(self):
+        row = _row(
+            close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=28, mtf_trend="bullish",
+            ml_regime="ranging",
+        )
+        cfg = _cfg(REGIME_ADAPTIVE_RSI_ENABLED=True, REGIME_CLASSIFIER_METHOD="ml")
+        assert be._check_entry(row, cfg) is None
+
+    def test_ml_none_regime_blocks_entry(self):
+        row = _row(
+            close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=25, mtf_trend="bullish",
+            ml_regime=None,
+        )
+        cfg = _cfg(REGIME_ADAPTIVE_RSI_ENABLED=True, REGIME_CLASSIFIER_METHOD="ml")
+        assert be._check_entry(row, cfg) is None
+
+    def test_missing_method_config_defaults_to_adx(self):
+        # A cfg without REGIME_CLASSIFIER_METHOD at all (e.g. an older
+        # fixture/config) must fall back to "adx", not raise.
+        row = _row(
+            close=1.0940, ema_trend=1.0900, bb_lower=1.0950, bb_upper=1.1100, rsi=25, mtf_trend="bullish",
+            adx=30,
+        )
+        cfg = _cfg(REGIME_ADAPTIVE_RSI_ENABLED=True)
+        assert not hasattr(cfg, "REGIME_CLASSIFIER_METHOD")
+        assert be._check_entry(row, cfg) == "buy"
+
+
 class TestOpenPosition:
     def test_computes_expected_levels_and_lot(self):
         row = _row(close=1.1000, atr=0.0010)
